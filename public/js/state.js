@@ -32,7 +32,9 @@ export const state = {
   wishlist: readStore(KEYS.wishlist, []),
   promo: readStore(KEYS.promo, null),
   recent: readStore(KEYS.recent, []),
-  announcementHidden: readStore(KEYS.announcement, false)
+  announcementHidden: readStore(KEYS.announcement, false),
+  firebase: { enabled: false, config: null, requireAuthForOrders: false },
+  user: readStore('ie_user_v1', null)
 };
 
 const bus = new EventTarget();
@@ -210,4 +212,22 @@ export function hideAnnouncement() {
 export function showAnnouncement() {
   state.announcementHidden = false;
   writeStore(KEYS.announcement, false);
+}
+
+/* -------------------------------------------------------------- auth user */
+
+export function setUser(user) {
+  state.user = user;
+  writeStore('ie_user_v1', user);
+  emit('user', user);
+}
+
+export function clearUser() {
+  state.user = null;
+  writeStore('ie_user_v1', null);
+  emit('user', null);
+}
+
+export function isLoggedIn() {
+  return Boolean(state.user);
 }

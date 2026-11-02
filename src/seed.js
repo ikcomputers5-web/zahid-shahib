@@ -762,7 +762,9 @@ function buildSeed() {
     messages: [],
     subscribers: [],
     dropAlerts: [],
-    visits: 0
+    visits: 0,
+    users: [],
+    adminUsers: []
   };
 }
 

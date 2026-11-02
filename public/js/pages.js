@@ -1,5 +1,6 @@
-import { state, money, cartDetails, cartTotals, addToCart, updateCartQty, removeFromCart, toggleWishlist, isWished, setPromo, clearPromo, revalidatePromo, pushRecent, discountPercent } from './state.js';
+import { state, money, cartDetails, cartTotals, addToCart, updateCartQty, removeFromCart, toggleWishlist, isWished, setPromo, clearPromo, revalidatePromo, pushRecent, discountPercent, setUser } from './state.js';
 import { api } from './api.js';
+import { getCurrentUser, signInWithGoogle, getIdToken, isFirebaseEnabled } from './firebase.js';
 import { navigate, queryParams, setQuery } from './nav.js';
 import {
   icon,
@@ -1187,6 +1188,44 @@ export async function checkoutPage() {
   }
   const t = cartTotals();
 
+  // Gate: require Google login when Firebase is enabled
+  const requireAuth = state.firebase?.requireAuthForOrders || state.firebase?.enabled;
+  const fbUser = getCurrentUser() || state.user;
+
+  if (requireAuth && !fbUser) {
+    app().innerHTML = `
+      ${pageHead({ crumbs: [{ label: 'Bag', href: '/cart' }, { label: 'Checkout' }], title: 'Sign in to checkout', desc: 'Please sign in with Google to place your order — it takes 10 seconds.' })}
+      <div class="checkout"><div class="container">
+        <div style="max-width:560px;margin:0 auto;text-align:center;padding:48px 24px;background:#fff;border:1px solid var(--line);box-shadow:var(--shadow-sm)">
+          <div style="font-size:42px;margin-bottom:12px">🔒</div>
+          <h2 style="font-family:var(--serif);font-size:28px">Sign in to place your order</h2>
+          <p style="color:var(--muted);margin-top:10px;line-height:1.7">We use Google sign-in to keep your orders secure and to keep spam out of the atelier. Your details are only used to fulfil your order.</p>
+          <button class="btn" type="button" data-auth-gate style="margin-top:22px;display:inline-flex;align-items:center;gap:10px;padding:12px 22px">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" opacity=".7"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" opacity=".7"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" opacity=".7"/></svg>
+            Continue with Google
+          </button>
+          <p class="form-note" data-auth-note style="margin-top:14px"></p>
+          <div style="margin-top:18px"><a class="link-arrow" href="/cart">${icon('arrowLeft')} Back to bag</a></div>
+          <div style="margin-top:14px;font-size:12px;color:var(--muted)">Having trouble? Email <a href="mailto:${escapeHtml(state.settings.email)}" style="color:var(--gold)">${escapeHtml(state.settings.email)}</a></div>
+        </div>
+      </div></div>`;
+    app().querySelector('[data-auth-gate]')?.addEventListener('click', async () => {
+      const note = app().querySelector('[data-auth-note]');
+      const btn = app().querySelector('[data-auth-gate]');
+      btn.disabled = true; btn.textContent = 'Opening Google…';
+      try {
+        const { user } = await signInWithGoogle();
+        setUser(user);
+        toast(`Welcome, ${user.name}!`, 'success');
+        checkoutPage();
+      } catch (err) {
+        if (note) { note.textContent = err.message; note.className = 'form-note is-error'; }
+        btn.disabled = false; btn.innerHTML = 'Continue with Google';
+      }
+    });
+    return;
+  }
+
   app().innerHTML = `
     ${pageHead({ crumbs: [{ label: 'Bag', href: '/cart' }, { label: 'Checkout' }], title: 'Checkout', desc: 'Two minutes, and the atelier is on its way.' })}
     <div class="checkout">
@@ -1222,6 +1261,13 @@ export async function checkoutPage() {
               <p class="form-note" data-checkout-note></p>
             </section>
 
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:10px 12px;background:#faf7f1;border:1px solid var(--line);font-size:13px">
+              <span style="display:flex;align-items:center;gap:10px">
+                ${fbUser?.picture ? `<img src="${escapeHtml(fbUser.picture)}" alt="" style="width:28px;height:28px;border-radius:50%" />` : ''}
+                <span>Ordering as <strong>${escapeHtml(fbUser.name || fbUser.email)}</strong><br/><span style="color:var(--muted);font-size:11px">${escapeHtml(fbUser.email)}</span></span>
+              </span>
+              <button type="button" data-checkout-signout style="font-size:11px;color:var(--muted);text-decoration:underline">Not you? Sign out</button>
+            </div>
             <button class="btn btn--block" type="submit" data-place-order>Place order · ${price(t.total)}</button>
             <p class="secure-note">${icon('lock')} This is a demo checkout — no payment is taken and no card details are stored.</p>
           </form>
@@ -1276,6 +1322,19 @@ export async function checkoutPage() {
     });
     return { ok, values };
   };
+
+  // Prefill name/email from Google account
+  if (fbUser) {
+    if (!form.querySelector('[name="name"]').value) form.querySelector('[name="name"]').value = fbUser.name || '';
+    if (!form.querySelector('[name="email"]').value) form.querySelector('[name="email"]').value = fbUser.email || '';
+  }
+  form.querySelector('[data-checkout-signout]')?.addEventListener('click', async () => {
+    const { signOutUser } = await import('./firebase.js');
+    const { clearUser } = await import('./state.js');
+    await signOutUser(); clearUser();
+    toast('Signed out — please sign in again to continue.');
+    checkoutPage();
+  });
 
   form.querySelectorAll('input, textarea').forEach((input) =>
     input.addEventListener('input', () => {
@@ -1527,6 +1586,74 @@ export function wishlistPage() {
         }
       </div>
     </div>`;
+  refreshCounts();
+}
+
+export async function accountPage() {
+  const user = getCurrentUser() || state.user;
+  if (!user) {
+    app().innerHTML = `
+      ${pageHead({ crumbs: [{ label: 'My account' }], title: 'My account', desc: 'Sign in to see your orders.' })}
+      <div class="container" style="max-width:560px;margin:0 auto;padding:32px 16px">
+        <div style="text-align:center;padding:40px 24px;background:#fff;border:1px solid var(--line)">
+          <h2 style="font-family:var(--serif);font-size:26px">Sign in to view your orders</h2>
+          <p style="color:var(--muted);margin-top:10px">Your orders are linked to your Google account.</p>
+          <button class="btn" type="button" data-account-signin style="margin-top:18px;display:inline-flex;align-items:center;gap:10px">
+            <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84"/></svg>
+            Continue with Google
+          </button>
+          <p class="form-note" data-account-note></p>
+        </div>
+      </div>`;
+    app().querySelector('[data-account-signin]')?.addEventListener('click', async () => {
+      try {
+        const { user: u } = await signInWithGoogle();
+        setUser(u);
+        accountPage();
+      } catch (err) {
+        const note = app().querySelector('[data-account-note]');
+        if (note) { note.textContent = err.message; note.className = 'form-note is-error'; }
+      }
+    });
+    return;
+  }
+
+  app().innerHTML = `
+    ${pageHead({ crumbs: [{ label: 'My account' }], title: `Hi, ${escapeHtml(user.name || user.email)}`, desc: escapeHtml(user.email) })}
+    <div class="account-page"><div class="container">
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:18px;padding:14px;background:#fff;border:1px solid var(--line)">
+        ${user.picture ? `<img src="${escapeHtml(user.picture)}" alt="" style="width:48px;height:48px;border-radius:50%" />` : `<span style="width:48px;height:48px;border-radius:50%;background:var(--sand);display:grid;place-items:center;font-weight:600">${escapeHtml((user.name||user.email).charAt(0).toUpperCase())}</span>`}
+        <div style="flex:1"><strong>${escapeHtml(user.name || user.email)}</strong><br/><span style="color:var(--muted);font-size:12px">${escapeHtml(user.email)}</span></div>
+        <button class="btn btn--ghost btn--sm" type="button" data-account-signout>Sign out</button>
+      </div>
+      <div class="account-orders" data-account-orders><p class="form-note">Loading your orders…</p></div>
+    </div></div>`;
+
+  app().querySelector('[data-account-signout]')?.addEventListener('click', async () => {
+    const { signOutUser } = await import('./firebase.js');
+    const { clearUser } = await import('./state.js');
+    await signOutUser(); clearUser();
+    accountPage();
+  });
+
+  const ordersEl = app().querySelector('[data-account-orders]');
+  try {
+    const { orders } = await api.myOrders();
+    if (!orders.length) {
+      ordersEl.innerHTML = emptyState({ title: 'No orders yet', text: 'Your orders will appear here after checkout.', action: 'Shop the drop', href: '/shop?drop=1' });
+    } else {
+      ordersEl.innerHTML = `<div class="table-wrap"><table class="data" style="background:#fff"><thead><tr><th>Order</th><th>Date</th><th>Items</th><th>Total</th><th>Status</th></tr></thead><tbody>
+        ${orders.map(o => `<tr class="is-clickable" data-go-order="${escapeHtml(o.number)}"><td><strong>${escapeHtml(o.number)}</strong></td><td>${formatDate(o.createdAt)}</td><td>${o.items.reduce((n,i)=>n+i.qty,0)}</td><td>${price(o.total)}</td><td><span class="status status--${escapeHtml(o.status)}">${escapeHtml(o.status)}</span></td></tr>`).join('')}
+      </tbody></table></div>`;
+      ordersEl.querySelectorAll('[data-go-order]').forEach(row => row.addEventListener('click', () => navigate('/order/' + encodeURIComponent(row.dataset.goOrder))));
+    }
+  } catch (err) {
+    if (err.code === 'AUTH_REQUIRED' || err.status === 401) {
+      ordersEl.innerHTML = `<p class="form-note is-error">Please sign in again: ${escapeHtml(err.message)}</p>`;
+    } else {
+      ordersEl.innerHTML = `<p class="form-note is-error">${escapeHtml(err.message)}</p>`;
+    }
+  }
   refreshCounts();
 }
 

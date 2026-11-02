@@ -27,11 +27,54 @@ npm run seed
 ### Admin
 
 - URL: **http://localhost:3000/admin**
-- Password: **`ismail2026`**
+- Password: **`ismail2026`** — or **Continue with Google** (Firebase).
 
 Set `ADMIN_PASSWORD` before the first boot to seed a different password, or change it inside the panel under **Settings → Password**. It is stored as a scrypt hash; sessions live for 12 hours and are throttled after repeated failed attempts.
 
+**Google login for admins (Firebase):** The admin panel also supports **Sign in with Google** via Firebase Authentication. Configure Firebase env vars (see below) and authorized admin emails (`ADMIN_EMAILS`); then click **Continue with Google** on the admin login screen. The Firebase token is verified server-side with `firebase-admin` and exchanged for a local admin session cookie.
+
 > There is no real payment gateway. Checkout records the order and payment method (cash on delivery, bank transfer, card on delivery) — the confirmation page states this plainly.
+
+### Firebase Authentication (Google Sign-In)
+
+Both the **storefront checkout** and the **admin panel** support Firebase Google authentication.
+
+**What it does:**
+- **Ordering:** When Firebase is configured (`FIREBASE_API_KEY` + `FIREBASE_PROJECT_ID`), the checkout is gated — customers must **sign in with Google** before they can place an order. Their Firebase `uid`, email, name and photo are attached to the order (`userUid`, `userEmail`) and shown in the admin Orders view. Without Firebase env vars, guest checkout still works (demo mode).
+- **Admin:** Admins can sign in with Google in addition to the password. Restrict access with `ADMIN_EMAILS=admin@example.com,owner@gmail.com`.
+
+**Setup (2 minutes):**
+
+1. In [Firebase Console](https://console.firebase.google.com/) → create a project → **Authentication → Sign-in method → enable Google**.
+2. **Authentication → Settings → Authorized domains** — add your domain (`localhost` is allowed by default, add your Vercel/hosting domain for production).
+3. **Project Settings → General → Your apps → Web app** — copy the SDK config.
+4. **Project Settings → Service accounts → Generate new private key** — download the JSON.
+
+Set these in `.env` (or Vercel → Settings → Environment Variables):
+
+```env
+# Client (public) — from step 3
+FIREBASE_API_KEY=AIzaSy...
+FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+FIREBASE_MESSAGING_SENDER_ID=123456...
+FIREBASE_APP_ID=1:123456:web:abc123
+
+# Server (secret) — from step 4 — pick ONE format:
+FIREBASE_SERVICE_ACCOUNT={"type":"service_account","project_id":"...","private_key":"...","client_email":"..."}
+# or
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+# or: FIREBASE_SERVICE_ACCOUNT_PATH=/path/to/serviceAccountKey.json
+
+# Optional: restrict which Google accounts can access /admin
+ADMIN_EMAILS=admin@ismailelegance.pk,owner@gmail.com
+```
+
+Restart the server (`npm run dev`). The storefront header will show **Sign in** and the checkout will require Google login; the admin login page will enable the Google button. See `.env.example` for all options.
+
+**Local dev without Firebase:** Leave the `FIREBASE_*` vars empty — guest checkout and password login keep working. The app falls back to a best-effort JWT decode for demo, but configure a service account for production.
 
 ## What's in the storefront
 
@@ -97,24 +140,26 @@ server.js              Express app, static files, SPA fallback, error handler
 src/
   db.js                JSON store: local file, or Supabase bucket on serverless hosts
   seed.js              Categories, 22 products, 4 promo codes, settings, copy
-  auth.js              scrypt password hashing, 12-hour stateless signed sessions
+  auth.js              scrypt password hashing, 12-hour stateless signed sessions + Firebase guards
+  firebase.js          Firebase Admin: token verification, client config, env helpers
   storage.js           Supabase Storage client: image uploads + remote db.json
   commerce.js          Promo evaluation, totals, line pricing
-  routes/public.js     /api — bootstrap, products, promos, orders, contact, subscribe
-  routes/admin.js      /api/admin — auth, CRUD, uploads, stats, settings
+  routes/public.js     /api — bootstrap, products, promos, orders, contact, subscribe + /auth/google, /my/orders
+  routes/admin.js      /api/admin — auth, CRUD, uploads, stats, settings + /firebase-login, /users
 public/
   index.html           Storefront shell
   admin.html           Admin shell
   css/styles.css       Storefront design system
   css/admin.css        Admin design system
-  js/api.js            fetch wrapper
-  js/state.js          Cart, wishlist, promo, recently viewed (localStorage)
+  js/api.js            fetch wrapper (attaches Firebase ID token)
+  js/state.js          Cart, wishlist, promo, recently viewed, user (localStorage)
+  js/firebase.js       Firebase client: Google popup, token, user sync
   js/nav.js            History-API router helpers
-  js/ui.js             Icons, chrome, cards, drawer, search, modals
-  js/pages.js          Every page view
+  js/ui.js             Icons, chrome, cards, drawer, search, modals, auth header
+  js/pages.js          Every page view + checkout auth gate + /account (my orders)
   js/router.js         Routes + error boundary
-  js/main.js           Boot, global handlers, shortcuts
-  js/admin.js          Admin login, views, modals, uploads
+  js/main.js           Boot, Firebase init, global handlers, shortcuts
+  js/admin.js          Admin login (password + Google), views, modals, uploads
   images/products/     Product photography
   images/boutique/     Atelier / salon photography
   uploads/             Admin image uploads (git-ignored)
