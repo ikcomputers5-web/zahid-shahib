@@ -13,6 +13,10 @@
  *   SUPABASE_SECRET_KEY       secret key (sb_secret_...) — newer Supabase format
  *   SUPABASE_SERVICE_ROLE_KEY legacy service_role key — also accepted
  *   SUPABASE_BUCKET           optional, defaults to "product-images"
+ *
+ * The JSON database is also stored in Supabase when the app runs on a
+ * read-only host (Vercel): one private bucket (SUPABASE_DB_BUCKET, default
+ * "store-db") holding a single "db.json" object.
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -24,6 +28,8 @@ const SUPABASE_KEY =
   process.env.SUPABASE_ANON_KEY ||
   '';
 const BUCKET = process.env.SUPABASE_BUCKET || 'product-images';
+const DB_BUCKET = process.env.SUPABASE_DB_BUCKET || 'store-db';
+const DB_OBJECT = 'db.json';
 
 let client = null;
 
@@ -59,4 +65,33 @@ async function uploadToSupabase(buffer, filename, contentType) {
   return data.publicUrl;
 }
 
-module.exports = { isSupabaseEnabled, uploadToSupabase, BUCKET };
+/**
+ * Download and parse the JSON database from the private DB bucket.
+ * @returns {Promise<object|null>} parsed database, or null if not stored yet
+ */
+async function downloadDb() {
+  const sb = getClient();
+  if (!sb) return null;
+  const { data, error } = await sb.storage.from(DB_BUCKET).download(DB_OBJECT);
+  if (error) {
+    if (String(error.statusCode) === '404' || /not found/i.test(error.message || '')) return null;
+    throw new Error(`Supabase db download failed: ${error.message}`);
+  }
+  const text = await data.text();
+  return JSON.parse(text);
+}
+
+/**
+ * Persist the JSON database into the private DB bucket (overwrites db.json).
+ * @param {string} json  serialized database
+ */
+async function uploadDb(json) {
+  const sb = getClient();
+  if (!sb) throw new Error('Supabase is not configured.');
+  const { error } = await sb.storage
+    .from(DB_BUCKET)
+    .upload(DB_OBJECT, json, { contentType: 'application/json', upsert: true });
+  if (error) throw new Error(`Supabase db save failed: ${error.message}`);
+}
+
+module.exports = { isSupabaseEnabled, uploadToSupabase, downloadDb, uploadDb, BUCKET, DB_BUCKET, DB_OBJECT };

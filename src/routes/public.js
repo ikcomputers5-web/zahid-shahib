@@ -1,10 +1,13 @@
 'use strict';
 
 const express = require('express');
-const { read, save, uid, READ_ONLY } = require('../db');
+const { read, save, uid, READ_ONLY, REMOTE } = require('../db');
 const { evaluatePromo, totalsFor, priceItems } = require('../commerce');
 
 const router = express.Router();
+
+// Forward async handler rejections to the error middleware (Express 4).
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 function publicSettings(settings) {
   const { adminPasswordHash, adminPasswordSalt, ...safe } = settings;
@@ -15,11 +18,13 @@ function publicProduct(p) {
   return p;
 }
 
-router.get('/bootstrap', (req, res) => {
+router.get('/bootstrap', ah(async (req, res) => {
   const db = read();
-  if (!READ_ONLY) {
+  // Count visits only on hosts with a local database; in remote (serverless)
+  // mode every storefront load would otherwise trigger a storage write.
+  if (!READ_ONLY && !REMOTE) {
     db.visits = (db.visits || 0) + 1;
-    save();
+    await save();
   }
   res.json({
     readOnly: READ_ONLY,
@@ -30,7 +35,7 @@ router.get('/bootstrap', (req, res) => {
       .filter((p) => p.active && (!p.expiresAt || new Date(p.expiresAt) > new Date()))
       .map((p) => ({ code: p.code, description: p.description, type: p.type, value: p.value, minOrder: p.minOrder }))
   });
-});
+}));
 
 router.get('/products', (req, res) => {
   const db = read();
@@ -84,7 +89,7 @@ router.post('/promo/validate', (req, res) => {
   });
 });
 
-router.post('/orders', (req, res) => {
+router.post('/orders', ah(async (req, res) => {
   const db = read();
   const { items, customer, paymentMethod, promoCode, notes } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
@@ -145,9 +150,9 @@ router.post('/orders', (req, res) => {
   }
 
   db.orders.unshift(order);
-  save();
+  await save();
   res.status(201).json({ order });
-});
+}));
 
 router.get('/orders/:number', (req, res) => {
   const db = read();
@@ -162,7 +167,7 @@ router.get('/orders/:number', (req, res) => {
   res.json({ order });
 });
 
-router.post('/contact', (req, res) => {
+router.post('/contact', ah(async (req, res) => {
   const db = read();
   const name = String(req.body?.name || '').trim();
   const email = String(req.body?.email || '').trim();
@@ -181,11 +186,11 @@ router.post('/contact', (req, res) => {
     createdAt: new Date().toISOString()
   };
   db.messages.unshift(entry);
-  save();
+  await save();
   res.status(201).json({ message: 'Thank you — our team will reply within one working day.', entry });
-});
+}));
 
-router.post('/subscribe', (req, res) => {
+router.post('/subscribe', ah(async (req, res) => {
   const db = read();
   const email = String(req.body?.email || '').trim().toLowerCase();
   const source = String(req.body?.source || 'newsletter').slice(0, 40);
@@ -196,9 +201,9 @@ router.post('/subscribe', (req, res) => {
     return res.json({ message: 'You are already on the list — see you at the next drop.' });
   }
   db.subscribers.unshift({ id: uid('sub_'), email, source, createdAt: new Date().toISOString() });
-  save();
+  await save();
   res.status(201).json({ message: 'You are on the list. First access to every drop.' });
-});
+}));
 
 router.get('/health', (req, res) => res.json({ ok: true, at: new Date().toISOString() }));
 

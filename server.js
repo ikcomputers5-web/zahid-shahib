@@ -2,7 +2,7 @@
 
 const express = require('express');
 const path = require('path');
-const { read, READ_ONLY } = require('./src/db');
+const { read, ensureReady, READ_ONLY } = require('./src/db');
 const publicRoutes = require('./src/routes/public');
 const adminRoutes = require('./src/routes/admin');
 
@@ -15,15 +15,20 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '8mb' }));
 
 app.use('/api', (req, res, next) => {
-  res.setHeader('Cache-Control', 'no-store');
-  // Never report a successful order or admin change when it cannot be saved.
-  // Promo validation is a read-only POST and remains available.
-  const safeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-  const promoValidation = req.method === 'POST' && req.path === '/promo/validate';
-  if (READ_ONLY && !safeMethod && !promoValidation) {
-    return res.status(503).json({ error: 'This store is currently in preview mode. Orders and other submissions are unavailable.' });
-  }
-  next();
+  // On a serverless host with Supabase configured, load the remote database
+  // before the first request touches it.
+  ensureReady().then(() => {
+    res.setHeader('Cache-Control', 'no-store');
+    // Never report a successful order or admin change when it cannot be saved.
+    // This only triggers in read-only preview mode (serverless host without a
+    // durable database). Promo validation is a read-only POST and remains available.
+    const safeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+    const promoValidation = req.method === 'POST' && req.path === '/promo/validate';
+    if (READ_ONLY && !safeMethod && !promoValidation) {
+      return res.status(503).json({ error: 'This store is currently in preview mode. Orders and other submissions are unavailable.' });
+    }
+    next();
+  }, next);
 });
 app.use('/api', publicRoutes);
 app.use('/api/admin', adminRoutes);
