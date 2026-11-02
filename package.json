@@ -15,6 +15,7 @@
   "dependencies": {
     "@fontsource/cormorant-garamond": "^5.3.0",
     "@fontsource/jost": "^5.3.0",
+    "@supabase/supabase-js": "^2.118.0",
     "express": "^4.21.2"
   }
 }
