@@ -11,6 +11,9 @@ const storage = require('../storage');
 
 const router = express.Router();
 
+// Forward async handler rejections to the error middleware (Express 4).
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 
@@ -192,33 +195,33 @@ router.get('/products', (req, res) => {
   res.json({ products: db.products });
 });
 
-router.post('/products', (req, res) => {
+router.post('/products', ah(async (req, res) => {
   const db = read();
   try {
     const product = normalizeProduct(req.body || {}, db.products, null);
     db.products.unshift(product);
-    save();
+    await save();
     res.status(201).json({ product });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
-router.put('/products/:id', (req, res) => {
+router.put('/products/:id', ah(async (req, res) => {
   const db = read();
   const existing = db.products.find((p) => p.id === req.params.id);
   if (!existing) return res.status(404).json({ error: 'Product not found.' });
   try {
     const product = normalizeProduct(req.body || {}, db.products, existing);
     Object.assign(existing, product);
-    save();
+    await save();
     res.json({ product: existing });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
-router.patch('/products/:id', (req, res) => {
+router.patch('/products/:id', ah(async (req, res) => {
   const db = read();
   const product = db.products.find((p) => p.id === req.params.id);
   if (!product) return res.status(404).json({ error: 'Product not found.' });
@@ -227,18 +230,18 @@ router.patch('/products/:id', (req, res) => {
       product[key] = key === 'stock' ? Math.max(0, parseInt(req.body[key], 10) || 0) : Boolean(req.body[key]);
     }
   }
-  save();
+  await save();
   res.json({ product });
-});
+}));
 
-router.delete('/products/:id', (req, res) => {
+router.delete('/products/:id', ah(async (req, res) => {
   const db = read();
   const before = db.products.length;
   db.products = db.products.filter((p) => p.id !== req.params.id);
   if (db.products.length === before) return res.status(404).json({ error: 'Product not found.' });
-  save();
+  await save();
   res.json({ ok: true });
-});
+}));
 
 /* ------------------------------------------------------------ promo codes */
 
@@ -268,20 +271,20 @@ router.get('/promos', (req, res) => {
   res.json({ promos: read().promoCodes });
 });
 
-router.post('/promos', (req, res) => {
+router.post('/promos', ah(async (req, res) => {
   const db = read();
   try {
     const promo = normalizePromo(req.body || {});
     if (db.promoCodes.some((p) => p.code === promo.code)) throw new Error('That code already exists.');
     db.promoCodes.unshift(promo);
-    save();
+    await save();
     res.status(201).json({ promo });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
-router.put('/promos/:id', (req, res) => {
+router.put('/promos/:id', ah(async (req, res) => {
   const db = read();
   const existing = db.promoCodes.find((p) => p.id === req.params.id);
   if (!existing) return res.status(404).json({ error: 'Promo code not found.' });
@@ -291,21 +294,21 @@ router.put('/promos/:id', (req, res) => {
       throw new Error('That code already exists.');
     }
     Object.assign(existing, promo);
-    save();
+    await save();
     res.json({ promo: existing });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
-router.delete('/promos/:id', (req, res) => {
+router.delete('/promos/:id', ah(async (req, res) => {
   const db = read();
   const before = db.promoCodes.length;
   db.promoCodes = db.promoCodes.filter((p) => p.id !== req.params.id);
   if (db.promoCodes.length === before) return res.status(404).json({ error: 'Promo code not found.' });
-  save();
+  await save();
   res.json({ ok: true });
-});
+}));
 
 /* ----------------------------------------------------------------- orders */
 
@@ -316,7 +319,7 @@ router.get('/orders', (req, res) => {
   res.json({ orders });
 });
 
-router.patch('/orders/:id', (req, res) => {
+router.patch('/orders/:id', ah(async (req, res) => {
   const db = read();
   const order = db.orders.find((o) => o.id === req.params.id || o.number === req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found.' });
@@ -327,18 +330,18 @@ router.patch('/orders/:id', (req, res) => {
     order.timeline = order.timeline || [];
     order.timeline.push({ status, at: new Date().toISOString(), note: String(note || '').slice(0, 200) });
   }
-  save();
+  await save();
   res.json({ order });
-});
+}));
 
-router.delete('/orders/:id', (req, res) => {
+router.delete('/orders/:id', ah(async (req, res) => {
   const db = read();
   const before = db.orders.length;
   db.orders = db.orders.filter((o) => o.id !== req.params.id);
   if (db.orders.length === before) return res.status(404).json({ error: 'Order not found.' });
-  save();
+  await save();
   res.json({ ok: true });
-});
+}));
 
 /* --------------------------------------------------------------- settings */
 
@@ -348,7 +351,7 @@ router.get('/settings', (req, res) => {
   res.json({ settings });
 });
 
-router.put('/settings', (req, res) => {
+router.put('/settings', ah(async (req, res) => {
   const db = read();
   const input = req.body || {};
   for (const key of SETTINGS_KEYS) {
@@ -377,12 +380,12 @@ router.put('/settings', (req, res) => {
     }
     db.settings[key] = value;
   }
-  save();
+  await save();
   const { adminPasswordHash, adminPasswordSalt, ...safe } = db.settings;
   res.json({ settings: safe, message: 'Settings saved.' });
-});
+}));
 
-router.post('/password', (req, res) => {
+router.post('/password', ah(async (req, res) => {
   const db = read();
   const { current, next } = req.body || {};
   if (!auth.verifyPassword(current)) return res.status(401).json({ error: 'Current password is incorrect.' });
@@ -390,9 +393,9 @@ router.post('/password', (req, res) => {
   const { salt, hash } = hashPassword(next);
   db.settings.adminPasswordSalt = salt;
   db.settings.adminPasswordHash = hash;
-  save();
+  await save();
   res.json({ message: 'Password updated.' });
-});
+}));
 
 /* ----------------------------------------------------- messages & audience */
 
@@ -400,34 +403,34 @@ router.get('/messages', (req, res) => {
   res.json({ messages: read().messages });
 });
 
-router.patch('/messages/:id', (req, res) => {
+router.patch('/messages/:id', ah(async (req, res) => {
   const db = read();
   const msg = db.messages.find((m) => m.id === req.params.id);
   if (!msg) return res.status(404).json({ error: 'Message not found.' });
   if ('read' in (req.body || {})) msg.read = Boolean(req.body.read);
-  save();
+  await save();
   res.json({ message: msg });
-});
+}));
 
-router.delete('/messages/:id', (req, res) => {
+router.delete('/messages/:id', ah(async (req, res) => {
   const db = read();
   const before = db.messages.length;
   db.messages = db.messages.filter((m) => m.id !== req.params.id);
   if (db.messages.length === before) return res.status(404).json({ error: 'Message not found.' });
-  save();
+  await save();
   res.json({ ok: true });
-});
+}));
 
 router.get('/subscribers', (req, res) => {
   res.json({ subscribers: read().subscribers });
 });
 
-router.delete('/subscribers/:id', (req, res) => {
+router.delete('/subscribers/:id', ah(async (req, res) => {
   const db = read();
   db.subscribers = db.subscribers.filter((s) => s.id !== req.params.id);
-  save();
+  await save();
   res.json({ ok: true });
-});
+}));
 
 /* ----------------------------------------------------------------- upload */
 

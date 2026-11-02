@@ -51,9 +51,11 @@ test('serverless mutations are rejected rather than silently lost', async () => 
 test('local database still persists and repairs corrupt JSON', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ismail-db-'));
   try {
-    fs.mkdirSync(path.join(dir, 'src'));
-    for (const name of ['db.js', 'seed.js']) fs.copyFileSync(path.join(__dirname, '..', 'src', name), path.join(dir, 'src', name));
-    const env = { ...process.env };
+    fs.cpSync(path.join(__dirname, '..', 'src'), path.join(dir, 'src'), { recursive: true });
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(__dirname, '..', 'node_modules')
+    };
     delete env.VERCEL;
     const run = (script) => execFileSync(process.execPath, ['-e', script], { cwd: dir, env });
     run("const db = require('./src/db'); db.read().visits = 42; db.save();");
@@ -65,4 +67,40 @@ test('local database still persists and repairs corrupt JSON', () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('on Vercel, Supabase env vars switch the store from read-only preview to durable remote mode', () => {
+  const srcDir = path.join(__dirname, '..', 'src');
+  const run = (env) =>
+    execFileSync(process.execPath, ['-e', "const db = require('./src/db'); console.log(db.READ_ONLY, db.REMOTE);"], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, NODE_PATH: path.join(__dirname, '..', 'node_modules'), ...env }
+    }).toString().trim();
+  // Serverless without a durable backend: read-only preview (this process env).
+  assert.equal(run({ VERCEL: '1', SUPABASE_URL: '', SUPABASE_SECRET_KEY: '' }), 'true false');
+  // Serverless with Supabase configured: writes go to the remote database.
+  assert.equal(run({ VERCEL: '1', SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SECRET_KEY: 'sb_secret_test' }), 'false true');
+  // Persistent host: always writable, even if Supabase vars are absent.
+  assert.equal(run({ VERCEL: '', SUPABASE_URL: '', SUPABASE_SECRET_KEY: '' }), 'false false');
+  assert.ok(srcDir);
+});
+
+test('admin sessions are stateless signed tokens that survive instances and reject tampering', () => {
+  const auth = require('../src/auth');
+  const token = auth.issueSession();
+  assert.ok(auth.sessionValid(token), 'fresh token is valid');
+  assert.equal(auth.sessionValid(token + 'x'), false, 'tampered signature rejected');
+  assert.equal(auth.sessionValid('not-a-token'), false);
+  const [payload] = token.split('.');
+  const forged = `${Buffer.from(JSON.stringify({ exp: Date.now() + 999999 })).toString('base64url')}.${payload.split('.')[1]}`;
+  assert.equal(auth.sessionValid(forged), false, 'forged payload rejected');
+  // A token signed with a different secret (e.g. after a password change) is invalid.
+  process.env.SESSION_SECRET = 'other-secret';
+  try {
+    assert.equal(auth.sessionValid(token), false, 'token from another secret rejected');
+    assert.ok(auth.sessionValid(auth.issueSession()), 'new token valid under current secret');
+  } finally {
+    delete process.env.SESSION_SECRET;
+  }
+  assert.ok(auth.sessionValid(token), 'original secret restored, token valid again');
 });
