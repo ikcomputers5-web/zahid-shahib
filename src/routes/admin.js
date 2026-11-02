@@ -1,0 +1,446 @@
+'use strict';
+
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { read, save, uid } = require('../db');
+const { hashPassword } = require('../seed');
+const auth = require('../auth');
+
+const router = express.Router();
+
+const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
+const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
+
+const SETTINGS_KEYS = [
+  'storeName', 'tagline', 'announcement', 'announcementActive', 'phone', 'whatsapp', 'email',
+  'address', 'hours', 'instagram', 'facebook', 'tiktok', 'youtube', 'pinterest', 'currency',
+  'freeShippingThreshold', 'shippingFee', 'returnWindow', 'dropTitle', 'dropSubtitle', 'dropEndsAt',
+  'dropNote', 'heroSlides', 'instagramPosts', 'aboutHeading', 'aboutText', 'aboutImage', 'values'
+];
+
+const ORDER_STATUSES = ['pending', 'confirmed', 'packed', 'shipped', 'delivered', 'cancelled'];
+
+function slugify(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .slice(0, 60);
+}
+
+function uniqueSlug(base, products, ignoreId) {
+  let slug = base || 'piece';
+  let i = 2;
+  while (products.some((p) => p.slug === slug && p.id !== ignoreId)) {
+    slug = `${base}-${i++}`;
+  }
+  return slug;
+}
+
+function normalizeProduct(input, products, existing) {
+  const name = String(input.name || existing?.name || '').trim();
+  if (name.length < 2) throw new Error('Product name is required.');
+  const price = Math.round(Number(input.price));
+  if (!Number.isFinite(price) || price <= 0) throw new Error('A valid price is required.');
+  const compareAtRaw = input.compareAt === '' || input.compareAt == null ? null : Math.round(Number(input.compareAt));
+  const sizes = (Array.isArray(input.sizes) ? input.sizes : String(input.sizes || '').split(','))
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+  const images = (Array.isArray(input.images) ? input.images : String(input.images || '').split(/\n|,/))
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+  if (!images.length) throw new Error('Add at least one image URL.');
+
+  const colors = (Array.isArray(input.colors) ? input.colors : [])
+    .map((c) => ({ name: String(c.name || '').trim(), hex: String(c.hex || '#c9b79c').trim() }))
+    .filter((c) => c.name);
+
+  const details = (Array.isArray(input.details) ? input.details : String(input.details || '').split('\n'))
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+  const care = (Array.isArray(input.care) ? input.care : String(input.care || '').split('\n'))
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+
+  const base = {
+    name,
+    subtitle: String(input.subtitle || existing?.subtitle || '').trim(),
+    category: String(input.category || existing?.category || 'pret'),
+    collection: String(input.collection || existing?.collection || 'Ismail Elegance').trim(),
+    price,
+    compareAt: compareAtRaw && compareAtRaw > price ? compareAtRaw : null,
+    images,
+    sizes: sizes.length ? sizes : ['S', 'M', 'L'],
+    colors,
+    fabric: String(input.fabric || existing?.fabric || '').trim(),
+    pieces: String(input.pieces || existing?.pieces || '').trim(),
+    description: String(input.description || existing?.description || '').trim(),
+    details,
+    care,
+    stock: Math.max(0, parseInt(input.stock, 10) || 0),
+    isNew: Boolean(input.isNew),
+    isDrop: Boolean(input.isDrop),
+    featured: Boolean(input.featured),
+    tags: (Array.isArray(input.tags) ? input.tags : String(input.tags || '').split(','))
+      .map((s) => String(s).trim())
+      .filter(Boolean),
+    reviews: existing?.reviews || [],
+    rating: existing?.rating || 5,
+    reviewCount: existing?.reviewCount || 0,
+    sold: existing?.sold || 0
+  };
+
+  return {
+    ...(existing || {}),
+    ...base,
+    id: existing?.id || uid('p_'),
+    slug: uniqueSlug(slugify(input.slug || name), products, existing?.id),
+    createdAt: existing?.createdAt || new Date().toISOString()
+  };
+}
+
+/* ------------------------------------------------------------------ auth */
+
+router.post('/login', (req, res) => {
+  const ip = req.ip || 'unknown';
+  if (auth.tooManyAttempts(ip)) {
+    return res.status(429).json({ error: 'Too many attempts. Please try again in a few minutes.' });
+  }
+  const ok = auth.verifyPassword(req.body?.password);
+  auth.noteAttempt(ip, ok);
+  if (!ok) return res.status(401).json({ error: 'Incorrect password.' });
+  const token = auth.issueSession();
+  res.setHeader('Set-Cookie', `ie_admin=${token}; HttpOnly; Path=/; Max-Age=${auth.SESSION_TTL / 1000}; SameSite=Lax`);
+  res.json({ ok: true, token });
+});
+
+router.post('/logout', (req, res) => {
+  auth.destroySession(auth.readToken(req));
+  res.setHeader('Set-Cookie', 'ie_admin=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax');
+  res.json({ ok: true });
+});
+
+router.get('/session', (req, res) => {
+  res.json({ authenticated: auth.sessionValid(auth.readToken(req)) });
+});
+
+router.use(auth.requireAdmin);
+
+/* --------------------------------------------------------------- dashboard */
+
+router.get('/stats', (req, res) => {
+  const db = read();
+  const active = db.orders.filter((o) => o.status !== 'cancelled');
+  const revenue = active.reduce((sum, o) => sum + o.total, 0);
+  const units = active.reduce((sum, o) => sum + o.items.reduce((n, i) => n + i.qty, 0), 0);
+
+  const days = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    const next = new Date(d.getTime() + 86400000);
+    const dayOrders = active.filter((o) => {
+      const t = new Date(o.createdAt).getTime();
+      return t >= d.getTime() && t < next.getTime();
+    });
+    days.push({
+      label: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+      revenue: dayOrders.reduce((s, o) => s + o.total, 0),
+      orders: dayOrders.length
+    });
+  }
+
+  const soldMap = new Map();
+  for (const order of active) {
+    for (const item of order.items) {
+      const row = soldMap.get(item.slug) || { slug: item.slug, name: item.name, image: item.image, qty: 0, revenue: 0 };
+      row.qty += item.qty;
+      row.revenue += item.lineTotal;
+      soldMap.set(item.slug, row);
+    }
+  }
+  const topProducts = [...soldMap.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+
+  res.json({
+    revenue,
+    orders: active.length,
+    pending: db.orders.filter((o) => o.status === 'pending').length,
+    units,
+    avgOrder: active.length ? Math.round(revenue / active.length) : 0,
+    products: db.products.length,
+    lowStock: db.products.filter((p) => p.stock <= 5).length,
+    subscribers: db.subscribers.length,
+    unreadMessages: db.messages.filter((m) => !m.read).length,
+    dropProducts: db.products.filter((p) => p.isDrop).length,
+    days,
+    topProducts,
+    recentOrders: db.orders.slice(0, 6),
+    promos: db.promoCodes.map((p) => ({ code: p.code, used: p.used, maxUses: p.maxUses, active: p.active })),
+    lowStockList: db.products.filter((p) => p.stock <= 5).map((p) => ({ id: p.id, name: p.name, stock: p.stock }))
+  });
+});
+
+/* ---------------------------------------------------------------- products */
+
+router.get('/products', (req, res) => {
+  const db = read();
+  res.json({ products: db.products });
+});
+
+router.post('/products', (req, res) => {
+  const db = read();
+  try {
+    const product = normalizeProduct(req.body || {}, db.products, null);
+    db.products.unshift(product);
+    save();
+    res.status(201).json({ product });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/products/:id', (req, res) => {
+  const db = read();
+  const existing = db.products.find((p) => p.id === req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Product not found.' });
+  try {
+    const product = normalizeProduct(req.body || {}, db.products, existing);
+    Object.assign(existing, product);
+    save();
+    res.json({ product: existing });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch('/products/:id', (req, res) => {
+  const db = read();
+  const product = db.products.find((p) => p.id === req.params.id);
+  if (!product) return res.status(404).json({ error: 'Product not found.' });
+  for (const key of ['isNew', 'isDrop', 'featured', 'stock']) {
+    if (key in req.body) {
+      product[key] = key === 'stock' ? Math.max(0, parseInt(req.body[key], 10) || 0) : Boolean(req.body[key]);
+    }
+  }
+  save();
+  res.json({ product });
+});
+
+router.delete('/products/:id', (req, res) => {
+  const db = read();
+  const before = db.products.length;
+  db.products = db.products.filter((p) => p.id !== req.params.id);
+  if (db.products.length === before) return res.status(404).json({ error: 'Product not found.' });
+  save();
+  res.json({ ok: true });
+});
+
+/* ------------------------------------------------------------ promo codes */
+
+function normalizePromo(input, existing) {
+  const code = String(input.code || existing?.code || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (code.length < 3) throw new Error('Promo code needs at least 3 characters.');
+  const type = ['percent', 'fixed', 'shipping'].includes(input.type) ? input.type : 'percent';
+  const value = type === 'shipping' ? 0 : Number(input.value);
+  if (type === 'percent' && (!value || value <= 0 || value > 90)) throw new Error('Percentage must be between 1 and 90.');
+  if (type === 'fixed' && (!value || value <= 0)) throw new Error('Enter a discount amount.');
+  return {
+    ...(existing || {}),
+    id: existing?.id || uid('promo_'),
+    code,
+    type,
+    value: Math.round(value || 0),
+    minOrder: Math.max(0, Math.round(Number(input.minOrder) || 0)),
+    maxUses: Math.max(0, parseInt(input.maxUses, 10) || 0),
+    used: existing?.used || 0,
+    active: input.active !== false,
+    expiresAt: input.expiresAt ? new Date(input.expiresAt).toISOString() : null,
+    description: String(input.description || '').trim() || `${type === 'percent' ? value + '% off' : 'Discount'}`
+  };
+}
+
+router.get('/promos', (req, res) => {
+  res.json({ promos: read().promoCodes });
+});
+
+router.post('/promos', (req, res) => {
+  const db = read();
+  try {
+    const promo = normalizePromo(req.body || {});
+    if (db.promoCodes.some((p) => p.code === promo.code)) throw new Error('That code already exists.');
+    db.promoCodes.unshift(promo);
+    save();
+    res.status(201).json({ promo });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/promos/:id', (req, res) => {
+  const db = read();
+  const existing = db.promoCodes.find((p) => p.id === req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Promo code not found.' });
+  try {
+    const promo = normalizePromo(req.body || {}, existing);
+    if (db.promoCodes.some((p) => p.code === promo.code && p.id !== existing.id)) {
+      throw new Error('That code already exists.');
+    }
+    Object.assign(existing, promo);
+    save();
+    res.json({ promo: existing });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/promos/:id', (req, res) => {
+  const db = read();
+  const before = db.promoCodes.length;
+  db.promoCodes = db.promoCodes.filter((p) => p.id !== req.params.id);
+  if (db.promoCodes.length === before) return res.status(404).json({ error: 'Promo code not found.' });
+  save();
+  res.json({ ok: true });
+});
+
+/* ----------------------------------------------------------------- orders */
+
+router.get('/orders', (req, res) => {
+  const db = read();
+  const status = req.query.status;
+  const orders = status && status !== 'all' ? db.orders.filter((o) => o.status === status) : db.orders;
+  res.json({ orders });
+});
+
+router.patch('/orders/:id', (req, res) => {
+  const db = read();
+  const order = db.orders.find((o) => o.id === req.params.id || o.number === req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+  const { status, note } = req.body || {};
+  if (status) {
+    if (!ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'Unknown status.' });
+    order.status = status;
+    order.timeline = order.timeline || [];
+    order.timeline.push({ status, at: new Date().toISOString(), note: String(note || '').slice(0, 200) });
+  }
+  save();
+  res.json({ order });
+});
+
+router.delete('/orders/:id', (req, res) => {
+  const db = read();
+  const before = db.orders.length;
+  db.orders = db.orders.filter((o) => o.id !== req.params.id);
+  if (db.orders.length === before) return res.status(404).json({ error: 'Order not found.' });
+  save();
+  res.json({ ok: true });
+});
+
+/* --------------------------------------------------------------- settings */
+
+router.get('/settings', (req, res) => {
+  const db = read();
+  const { adminPasswordHash, adminPasswordSalt, ...settings } = db.settings;
+  res.json({ settings });
+});
+
+router.put('/settings', (req, res) => {
+  const db = read();
+  const input = req.body || {};
+  for (const key of SETTINGS_KEYS) {
+    if (!(key in input)) continue;
+    let value = input[key];
+    if (['freeShippingThreshold', 'shippingFee', 'returnWindow'].includes(key)) {
+      value = Math.max(0, Number(value) || 0);
+    }
+    if (key === 'announcementActive') value = Boolean(value);
+    if (key === 'instagramPosts' && Array.isArray(value)) {
+      value = value.map((v) => String(v).trim()).filter(Boolean);
+    }
+    if (key === 'heroSlides' && Array.isArray(value)) {
+      value = value.slice(0, 5).map((slide) => ({
+        image: String(slide.image || '').trim(),
+        kicker: String(slide.kicker || '').trim(),
+        title: String(slide.title || '').trim(),
+        subtitle: String(slide.subtitle || '').trim(),
+        ctaLabel: String(slide.ctaLabel || '').trim(),
+        ctaHref: String(slide.ctaHref || '/shop').trim(),
+        tone: slide.tone === 'light' ? 'light' : 'dark'
+      })).filter((s) => s.image);
+    }
+    if (key === 'values' && Array.isArray(value)) {
+      value = value.slice(0, 6).map((v) => ({ title: String(v.title || '').trim(), text: String(v.text || '').trim() }));
+    }
+    db.settings[key] = value;
+  }
+  save();
+  const { adminPasswordHash, adminPasswordSalt, ...safe } = db.settings;
+  res.json({ settings: safe, message: 'Settings saved.' });
+});
+
+router.post('/password', (req, res) => {
+  const db = read();
+  const { current, next } = req.body || {};
+  if (!auth.verifyPassword(current)) return res.status(401).json({ error: 'Current password is incorrect.' });
+  if (!next || String(next).length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  const { salt, hash } = hashPassword(next);
+  db.settings.adminPasswordSalt = salt;
+  db.settings.adminPasswordHash = hash;
+  save();
+  res.json({ message: 'Password updated.' });
+});
+
+/* ----------------------------------------------------- messages & audience */
+
+router.get('/messages', (req, res) => {
+  res.json({ messages: read().messages });
+});
+
+router.patch('/messages/:id', (req, res) => {
+  const db = read();
+  const msg = db.messages.find((m) => m.id === req.params.id);
+  if (!msg) return res.status(404).json({ error: 'Message not found.' });
+  if ('read' in (req.body || {})) msg.read = Boolean(req.body.read);
+  save();
+  res.json({ message: msg });
+});
+
+router.delete('/messages/:id', (req, res) => {
+  const db = read();
+  const before = db.messages.length;
+  db.messages = db.messages.filter((m) => m.id !== req.params.id);
+  if (db.messages.length === before) return res.status(404).json({ error: 'Message not found.' });
+  save();
+  res.json({ ok: true });
+});
+
+router.get('/subscribers', (req, res) => {
+  res.json({ subscribers: read().subscribers });
+});
+
+router.delete('/subscribers/:id', (req, res) => {
+  const db = read();
+  db.subscribers = db.subscribers.filter((s) => s.id !== req.params.id);
+  save();
+  res.json({ ok: true });
+});
+
+/* ----------------------------------------------------------------- upload */
+
+router.post('/upload', (req, res) => {
+  const dataUrl = String(req.body?.dataUrl || '');
+  const match = /^data:(image\/(png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!match) return res.status(400).json({ error: 'Upload a PNG, JPG or WEBP image.' });
+  const buffer = Buffer.from(match[3], 'base64');
+  if (buffer.length > 6 * 1024 * 1024) return res.status(413).json({ error: 'Image must be smaller than 6 MB.' });
+  const ext = match[2] === 'jpeg' ? 'jpg' : match[2];
+  const filename = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  fs.writeFileSync(path.join(UPLOAD_DIR, filename), buffer);
+  res.status(201).json({ url: `/uploads/${filename}` });
+});
+
+module.exports = router;

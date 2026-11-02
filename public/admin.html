@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Store admin · Ismail Elegance</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="stylesheet" href="/css/admin.css" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div id="boot" class="boot"><span class="boot__mark">IE</span><span>Loading the admin…</span></div>
+
+    <section id="login" class="login" hidden>
+      <form class="login__card" data-login-form>
+        <span class="login__mark">IE</span>
+        <p class="login__eyebrow">Ismail Elegance</p>
+        <h1>Store admin</h1>
+        <p class="login__text">Sign in to manage products, orders, promo codes and everything your customers see.</p>
+        <label class="field-label" for="admin-password">Password</label>
+        <input id="admin-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required />
+        <button class="abtn abtn--block" type="submit">Sign in</button>
+        <p class="login__note" data-login-note>First time here? The demo password is <strong>ismail2026</strong> — change it under Settings once you are in.</p>
+        <a class="login__back" href="/">← Back to the store</a>
+      </form>
+    </section>
+
+    <div id="shell" class="shell" hidden>
+      <aside class="side" id="side">
+        <button class="side__close" type="button" data-close-menu aria-label="Close menu">✕</button>
+        <div class="side__brand">
+          <span class="side__mark">IE</span>
+          <div>
+            <strong>Ismail Elegance</strong>
+            <span>Store admin</span>
+          </div>
+        </div>
+        <nav class="side__nav" id="side-nav">
+          <button type="button" data-view="dashboard"><span>01</span>Dashboard</button>
+          <button type="button" data-view="products"><span>02</span>Products</button>
+          <button type="button" data-view="orders"><span>03</span>Orders</button>
+          <button type="button" data-view="promos"><span>04</span>Promo codes</button>
+          <button type="button" data-view="storefront"><span>05</span>Storefront</button>
+          <button type="button" data-view="contact"><span>06</span>Contact &amp; social</button>
+          <button type="button" data-view="messages"><span>07</span>Messages <em data-badge="messages"></em></button>
+          <button type="button" data-view="audience"><span>08</span>Audience</button>
+          <button type="button" data-view="settings"><span>09</span>Settings</button>
+        </nav>
+        <div class="side__foot">
+          <a href="/" target="_blank" rel="noopener">View storefront ↗</a>
+          <button type="button" data-logout>Sign out</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <button class="topbar__menu" type="button" data-menu aria-label="Toggle menu">☰</button>
+          <div>
+            <p class="topbar__eyebrow" id="view-eyebrow">Overview</p>
+            <h1 id="view-title">Dashboard</h1>
+          </div>
+          <div class="topbar__actions">
+            <button class="abtn abtn--ghost" type="button" data-quick="promo">+ Promo code</button>
+            <button class="abtn" type="button" data-quick="product">+ New product</button>
+          </div>
+        </header>
+        <div class="view" id="view"></div>
+        <footer class="main__foot">
+          <span>Ismail Elegance admin · Lahore</span>
+          <span id="foot-note">All changes save to the live store immediately.</span>
+        </footer>
+      </main>
+    </div>
+
+    <div id="modal-root"></div>
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <script type="module" src="/js/admin.js"></script>
+  </body>
+</html>
