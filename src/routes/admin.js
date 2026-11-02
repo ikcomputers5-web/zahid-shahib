@@ -8,6 +8,7 @@ const { read, save, uid } = require('../db');
 const { hashPassword } = require('../seed');
 const auth = require('../auth');
 const storage = require('../storage');
+const firebase = require('../firebase');
 
 const router = express.Router();
 
@@ -108,6 +109,11 @@ function normalizeProduct(input, products, existing) {
 
 /* ------------------------------------------------------------------ auth */
 
+router.get('/firebase-config', (req, res) => {
+  const cfg = firebase.getClientConfig();
+  res.json({ enabled: firebase.isFirebaseEnabled(), config: cfg });
+});
+
 router.post('/login', (req, res) => {
   const ip = req.ip || 'unknown';
   if (auth.tooManyAttempts(ip)) {
@@ -120,6 +126,54 @@ router.post('/login', (req, res) => {
   res.setHeader('Set-Cookie', `ie_admin=${token}; HttpOnly; Path=/; Max-Age=${auth.SESSION_TTL / 1000}; SameSite=Lax`);
   res.json({ ok: true, token });
 });
+
+// Firebase Google login for admin
+router.post('/firebase-login', ah(async (req, res) => {
+  const ip = req.ip || 'unknown';
+  if (auth.tooManyAttempts(ip)) {
+    return res.status(429).json({ error: 'Too many attempts. Please try again in a few minutes.' });
+  }
+  const idToken = String(req.body?.idToken || req.body?.token || '').trim();
+  if (!idToken) return res.status(400).json({ error: 'Missing Google token. Please try again.' });
+
+  let decoded;
+  try {
+    decoded = await auth.verifyFirebaseAdmin(idToken);
+  } catch (err) {
+    auth.noteAttempt(ip, false);
+    return res.status(401).json({ error: err.message || 'Google sign-in failed.' });
+  }
+
+  auth.noteAttempt(ip, true);
+
+  // Optionally persist admin user
+  const db = read();
+  if (!Array.isArray(db.adminUsers)) db.adminUsers = [];
+  let adminUser = db.adminUsers.find((u) => u.uid === decoded.uid || (decoded.email && u.email === decoded.email));
+  if (!adminUser) {
+    adminUser = {
+      id: uid('adm_'),
+      uid: decoded.uid,
+      email: decoded.email,
+      name: decoded.name,
+      picture: decoded.picture || null,
+      provider: 'google',
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString()
+    };
+    db.adminUsers.unshift(adminUser);
+    await save();
+  } else {
+    adminUser.lastLoginAt = new Date().toISOString();
+    adminUser.picture = decoded.picture || adminUser.picture;
+    adminUser.name = decoded.name || adminUser.name;
+    await save();
+  }
+
+  const token = auth.issueSession();
+  res.setHeader('Set-Cookie', `ie_admin=${token}; HttpOnly; Path=/; Max-Age=${auth.SESSION_TTL / 1000}; SameSite=Lax`);
+  res.json({ ok: true, token, user: { email: decoded.email, name: decoded.name, picture: decoded.picture } });
+}));
 
 router.post('/logout', (req, res) => {
   auth.destroySession(auth.readToken(req));
@@ -431,6 +485,29 @@ router.delete('/subscribers/:id', ah(async (req, res) => {
   await save();
   res.json({ ok: true });
 }));
+
+/* ------------------------------------------------------------------ users */
+
+router.get('/users', (req, res) => {
+  const db = read();
+  const users = (db.users || []).map((u) => ({
+    id: u.id,
+    uid: u.uid,
+    email: u.email,
+    name: u.name,
+    picture: u.picture,
+    provider: u.provider,
+    orders: u.orders || 0,
+    createdAt: u.createdAt,
+    lastLoginAt: u.lastLoginAt
+  }));
+  res.json({ users });
+});
+
+router.get('/admin-users', (req, res) => {
+  const db = read();
+  res.json({ adminUsers: db.adminUsers || [] });
+});
 
 /* ----------------------------------------------------------------- upload */
 

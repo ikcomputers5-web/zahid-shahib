@@ -1,4 +1,4 @@
-import { homePage, shopPage, productPage, cartPage, checkoutPage, orderPage, trackPage, wishlistPage, aboutPage, contactPage, quizPage, notFoundPage } from './pages.js';
+import { homePage, shopPage, productPage, cartPage, checkoutPage, orderPage, trackPage, wishlistPage, aboutPage, contactPage, quizPage, accountPage, notFoundPage } from './pages.js';
 import { closeCart, closeModal, closeSearch, closeMobileNav, hideScrim } from './ui.js';
 
 const routes = [
@@ -12,7 +12,8 @@ const routes = [
   { pattern: /^\/wishlist$/, view: wishlistPage, title: 'Your wishlist' },
   { pattern: /^\/about$/, view: aboutPage, title: 'Our story' },
   { pattern: /^\/contact$/, view: contactPage, title: 'Contact' },
-  { pattern: /^\/quiz$/, view: quizPage, title: 'Find your muse' }
+  { pattern: /^\/quiz$/, view: quizPage, title: 'Find your muse' },
+  { pattern: /^\/account$/, view: accountPage, title: 'My account' }
 ];
 
 let booted = false;

@@ -3,6 +3,8 @@
 const express = require('express');
 const { read, save, uid, READ_ONLY, REMOTE } = require('../db');
 const { evaluatePromo, totalsFor, priceItems } = require('../commerce');
+const auth = require('../auth');
+const firebase = require('../firebase');
 
 const router = express.Router();
 
@@ -33,8 +35,76 @@ router.get('/bootstrap', ah(async (req, res) => {
     products: db.products.map(publicProduct),
     activePromos: db.promoCodes
       .filter((p) => p.active && (!p.expiresAt || new Date(p.expiresAt) > new Date()))
-      .map((p) => ({ code: p.code, description: p.description, type: p.type, value: p.value, minOrder: p.minOrder }))
+      .map((p) => ({ code: p.code, description: p.description, type: p.type, value: p.value, minOrder: p.minOrder })),
+    firebase: {
+      enabled: firebase.isFirebaseEnabled(),
+      config: firebase.getClientConfig(),
+      requireAuthForOrders: firebase.isFirebaseEnabled() // when Firebase is on, orders need Google login
+    }
   });
+}));
+
+router.get('/auth/config', (req, res) => {
+  res.json({
+    enabled: firebase.isFirebaseEnabled(),
+    config: firebase.getClientConfig(),
+    requireAuthForOrders: firebase.isFirebaseEnabled()
+  });
+});
+
+router.get('/auth/me', ah(async (req, res) => {
+  const customer = await auth.verifyCustomer(req);
+  if (!customer) return res.status(401).json({ authenticated: false, error: 'Not signed in.' });
+  res.json({ authenticated: true, user: { uid: customer.uid, email: customer.email, name: customer.name, picture: customer.picture } });
+}));
+
+// Verify Firebase token and upsert user record (idempotent). Used by storefront to ensure user exists.
+router.post('/auth/google', ah(async (req, res) => {
+  const idToken = String(req.body?.idToken || req.body?.token || '').trim();
+  if (!idToken) return res.status(400).json({ error: 'Missing Google ID token.' });
+
+  let decoded;
+  try {
+    decoded = await firebase.verifyIdToken(idToken);
+  } catch (err) {
+    return res.status(401).json({ error: err.message || 'Invalid Google token.' });
+  }
+
+  const db = read();
+  if (!Array.isArray(db.users)) db.users = [];
+
+  let user = db.users.find((u) => u.uid === decoded.uid || (decoded.email && u.email === decoded.email));
+  if (!user) {
+    user = {
+      id: uid('usr_'),
+      uid: decoded.uid,
+      email: decoded.email || '',
+      name: decoded.name || decoded.email || 'Customer',
+      picture: decoded.picture || null,
+      provider: 'google',
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+      orders: 0
+    };
+    db.users.unshift(user);
+    await save();
+  } else {
+    user.lastLoginAt = new Date().toISOString();
+    if (decoded.picture) user.picture = decoded.picture;
+    if (decoded.name) user.name = decoded.name;
+    await save();
+  }
+
+  res.json({ ok: true, user: { uid: user.uid, email: user.email, name: user.name, picture: user.picture } });
+}));
+
+// List orders for the authenticated customer (my orders)
+router.get('/my/orders', ah(async (req, res) => {
+  const customer = await auth.verifyCustomer(req);
+  if (!customer) return res.status(401).json({ error: 'Please sign in with Google to view your orders.', code: 'AUTH_REQUIRED' });
+  const db = read();
+  const myOrders = db.orders.filter((o) => o.userUid === customer.uid || (customer.email && o.customer?.email?.toLowerCase() === customer.email.toLowerCase()));
+  res.json({ orders: myOrders });
 }));
 
 router.get('/products', (req, res) => {
@@ -89,16 +159,29 @@ router.post('/promo/validate', (req, res) => {
   });
 });
 
-router.post('/orders', ah(async (req, res) => {
+router.post('/orders', auth.optionalCustomer, ah(async (req, res) => {
   const db = read();
   const { items, customer, paymentMethod, promoCode, notes } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Your bag is empty.' });
   }
 
+  // Enforce Google login when Firebase is enabled
+  let firebaseUser = req.customer || null;
+  if (!firebaseUser && firebase.isFirebaseEnabled()) {
+    // Also try token in body as fallback (some clients send idToken separately)
+    const bodyToken = req.body?.idToken || req.headers['x-firebase-token'];
+    if (bodyToken) {
+      try { firebaseUser = await firebase.verifyIdToken(String(bodyToken)); } catch (_) {}
+    }
+    if (!firebaseUser) {
+      return res.status(401).json({ error: 'Please sign in with Google to place an order.', code: 'AUTH_REQUIRED', requireAuth: true });
+    }
+  }
+
   const name = String(customer?.name || '').trim();
   const phone = String(customer?.phone || '').trim();
-  const email = String(customer?.email || '').trim();
+  const email = String(customer?.email || firebaseUser?.email || '').trim();
   const address = String(customer?.address || '').trim();
   const city = String(customer?.city || '').trim();
 
@@ -133,8 +216,35 @@ router.post('/orders', ah(async (req, res) => {
     payment: ['cod', 'bank', 'card'].includes(paymentMethod) ? paymentMethod : 'cod',
     status: 'pending',
     createdAt: new Date().toISOString(),
-    timeline: [{ status: 'pending', at: new Date().toISOString(), note: 'Order placed' }]
+    timeline: [{ status: 'pending', at: new Date().toISOString(), note: 'Order placed' + (firebaseUser ? ` · ${firebaseUser.email}` : '') }],
+    userUid: firebaseUser?.uid || null,
+    userEmail: firebaseUser?.email || email || null,
+    userName: firebaseUser?.name || name,
+    userPicture: firebaseUser?.picture || null
   };
+
+  // Update user stats if present
+  if (firebaseUser) {
+    if (!Array.isArray(db.users)) db.users = [];
+    let u = db.users.find((x) => x.uid === firebaseUser.uid);
+    if (!u && firebaseUser.email) u = db.users.find((x) => x.email === firebaseUser.email);
+    if (!u) {
+      u = {
+        id: uid('usr_'),
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || email,
+        name: firebaseUser.name || name,
+        picture: firebaseUser.picture || null,
+        provider: 'google',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+        orders: 0
+      };
+      db.users.unshift(u);
+    }
+    u.orders = (u.orders || 0) + 1;
+    u.lastLoginAt = new Date().toISOString();
+  }
 
   // Decrement stock, count promo usage, keep product "recently ordered" stats.
   for (const line of order.items) {
@@ -154,18 +264,25 @@ router.post('/orders', ah(async (req, res) => {
   res.status(201).json({ order });
 }));
 
-router.get('/orders/:number', (req, res) => {
+router.get('/orders/:number', ah(async (req, res) => {
   const db = read();
   const number = String(req.params.number || '').trim().toUpperCase();
   const phone = String(req.query.phone || '').replace(/\D/g, '');
   const order = db.orders.find((o) => o.number.toUpperCase() === number);
   if (!order) return res.status(404).json({ error: 'No order found with that number.' });
+
+  // If request is authenticated as the order owner, allow without phone check
+  const customer = await auth.verifyCustomer(req);
+  if (customer && (order.userUid === customer.uid || (customer.email && order.customer?.email?.toLowerCase() === customer.email.toLowerCase()))) {
+    return res.json({ order });
+  }
+
   const orderPhone = String(order.customer.phone || '').replace(/\D/g, '');
   if (!phone || (orderPhone !== phone && !orderPhone.endsWith(phone) && !phone.endsWith(orderPhone))) {
     return res.status(401).json({ error: 'The phone number does not match this order.' });
   }
   res.json({ order });
-});
+}));
 
 router.post('/contact', ah(async (req, res) => {
   const db = read();

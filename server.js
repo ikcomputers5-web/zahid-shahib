@@ -24,7 +24,8 @@ app.use('/api', (req, res, next) => {
     // durable database). Promo validation is a read-only POST and remains available.
     const safeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
     const promoValidation = req.method === 'POST' && req.path === '/promo/validate';
-    if (READ_ONLY && !safeMethod && !promoValidation) {
+    const authCheck = req.method === 'POST' && (req.path === '/auth/google' || req.path === '/auth/me');
+    if (READ_ONLY && !safeMethod && !promoValidation && !authCheck) {
       return res.status(503).json({ error: 'This store is currently in preview mode. Orders and other submissions are unavailable.' });
     }
     next();

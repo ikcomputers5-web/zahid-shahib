@@ -72,6 +72,67 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+/**
+ * Firebase-based admin verification — validates Firebase ID token and issues a local session.
+ * Returns decoded user if valid admin, else null.
+ */
+async function verifyFirebaseAdmin(idToken) {
+  if (!idToken) return null;
+  const firebase = require('./firebase');
+  let decoded;
+  try {
+    decoded = await firebase.verifyIdToken(idToken);
+  } catch (err) {
+    throw new Error(err.message || 'Invalid Google token.');
+  }
+  if (!decoded.email) throw new Error('Google account has no email.');
+  if (!firebase.isAdminEmail(decoded.email)) {
+    throw new Error('This Google account is not authorized for admin access.');
+  }
+  return decoded;
+}
+
+/**
+ * Customer auth helpers — verify Firebase ID token for storefront users.
+ */
+async function verifyCustomer(req) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) return null;
+  // If token looks like our local admin session, ignore for customer flow
+  if (token.split('.').length === 2 && sessionValid(token)) return null;
+
+  const firebase = require('./firebase');
+  // If Firebase not configured but we still want to allow guest fallback,
+  // verifyCustomer will try to decode; if fails return null.
+  try {
+    const decoded = await firebase.verifyIdToken(token);
+    return decoded;
+  } catch (_err) {
+    return null;
+  }
+}
+
+async function requireCustomer(req, res, next) {
+  const firebase = require('./firebase');
+  // Only enforce when Firebase is configured — otherwise allow guests (dev/demo mode)
+  if (!firebase.isFirebaseEnabled()) return next();
+  const customer = await verifyCustomer(req);
+  if (!customer) {
+    return res.status(401).json({ error: 'Please sign in with Google to continue.', code: 'AUTH_REQUIRED' });
+  }
+  req.customer = customer;
+  next();
+}
+
+async function optionalCustomer(req, _res, next) {
+  try {
+    const customer = await verifyCustomer(req);
+    if (customer) req.customer = customer;
+  } catch (_) {}
+  next();
+}
+
 /** Very light brute-force protection: 8 failed attempts per IP per 10 minutes. */
 function tooManyAttempts(ip) {
   const record = attempts.get(ip);
@@ -93,4 +154,4 @@ function noteAttempt(ip, success) {
   attempts.set(ip, record);
 }
 
-module.exports = { verifyPassword, issueSession, destroySession, sessionValid, readToken, requireAdmin, tooManyAttempts, noteAttempt, SESSION_TTL };
+module.exports = { verifyPassword, issueSession, destroySession, sessionValid, readToken, requireAdmin, tooManyAttempts, noteAttempt, SESSION_TTL, verifyFirebaseAdmin, verifyCustomer, requireCustomer, optionalCustomer };

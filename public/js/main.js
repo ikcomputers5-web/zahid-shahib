@@ -1,7 +1,8 @@
 import { api } from './api.js';
-import { state, addToCart, updateCartQty, removeFromCart, toggleWishlist, isWished, productBySlug, cartDetails, hideAnnouncement, showAnnouncement } from './state.js';
+import { state, addToCart, updateCartQty, removeFromCart, toggleWishlist, isWished, productBySlug, cartDetails, hideAnnouncement, showAnnouncement, setUser } from './state.js';
 import { navigate } from './nav.js';
 import { startRouter } from './router.js';
+import { initFirebase, getCurrentUser, onAuthChange, isFirebaseEnabled } from './firebase.js';
 import {
   renderChrome,
   renderCartDrawer,
@@ -31,7 +32,25 @@ async function boot() {
     state.categories = data.categories || [];
     state.products = data.products || [];
     state.promos = data.activePromos || [];
+    state.firebase = data.firebase || { enabled: false, config: null, requireAuthForOrders: false };
     window.__storeName = data.settings.storeName;
+
+    // Initialize Firebase for storefront (Google sign-in for ordering)
+    if (state.firebase.config) {
+      const fb = await initFirebase(state.firebase.config);
+      if (fb.enabled) {
+        console.log('[app] Firebase enabled');
+        const stored = getCurrentUser();
+        if (stored) setUser(stored);
+        onAuthChange((user) => {
+          setUser(user);
+          renderChrome();
+          refreshCounts();
+        });
+      } else if (state.firebase.enabled) {
+        console.warn('[app] Firebase config incomplete:', fb.reason);
+      }
+    }
 
     document.title = `${data.settings.storeName} — ${data.settings.tagline}`;
     renderChrome();
@@ -41,6 +60,10 @@ async function boot() {
       notice.style.cssText = 'padding:10px 16px;text-align:center;background:#fff2d6;color:#513900;font-size:14px';
       notice.textContent = 'Store preview: browsing is available, but orders and submissions are temporarily unavailable.';
       document.getElementById('site-header').before(notice);
+    }
+    // If Firebase is configured, show a subtle note when auth is required for orders
+    if (state.firebase.requireAuthForOrders && !getCurrentUser()) {
+      // handled in checkout gate, not global banner
     }
     startRouter();
     setupHeaderScroll();
@@ -127,6 +150,31 @@ function setupDelegates() {
     const btn = e.target.closest('[data-copy]');
     if (!btn) return;
     copyText(btn.dataset.copy, `Code ${btn.dataset.copy} copied`);
+  });
+
+  /* auth buttons (header) */
+  document.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-sign-in]')) {
+      e.preventDefault();
+      const { signInWithGoogle } = await import('./firebase.js');
+      try {
+        const { user } = await signInWithGoogle();
+        setUser(user);
+        renderChrome();
+        toast(`Welcome, ${user.name}! You can now place orders.`, 'success');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }
+    if (e.target.closest('[data-sign-out]')) {
+      e.preventDefault();
+      const { signOutUser } = await import('./firebase.js');
+      const { clearUser } = await import('./state.js');
+      await signOutUser();
+      clearUser();
+      renderChrome();
+      toast('You have been signed out.');
+    }
   });
 
   /* cart drawer */

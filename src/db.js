@@ -28,7 +28,7 @@ function ensure() {
 
 async function loadRemote() {
   const remote = await storage.downloadDb();
-  cache = remote || buildSeed();
+  cache = remote ? migrate(remote) : migrate(buildSeed());
   if (!remote) {
     // First boot on a serverless host: seed the bucket so later instances
     // and the admin panel all read the same data.
@@ -51,22 +51,34 @@ function ensureReady() {
   return readyPromise;
 }
 
+function migrate(db) {
+  // Ensure new collections exist on older databases
+  if (!Array.isArray(db.users)) db.users = [];
+  if (!Array.isArray(db.adminUsers)) db.adminUsers = [];
+  if (!Array.isArray(db.orders)) db.orders = [];
+  if (!Array.isArray(db.messages)) db.messages = [];
+  if (!Array.isArray(db.subscribers)) db.subscribers = [];
+  if (!Array.isArray(db.dropAlerts)) db.dropAlerts = [];
+  if (!db.settings) db.settings = buildSeed().settings;
+  return db;
+}
+
 function read() {
   if (cache) return cache;
   if (READ_ONLY) {
-    cache = buildSeed();
+    cache = migrate(buildSeed());
     return cache;
   }
   if (REMOTE) {
     // Not loaded yet — callers on /api have awaited ensureReady() first.
-    return buildSeed();
+    return migrate(buildSeed());
   }
   ensure();
   try {
-    cache = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    cache = migrate(JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
   } catch (err) {
     console.error('[db] corrupted database, reseeding:', err.message);
-    cache = buildSeed();
+    cache = migrate(buildSeed());
     persistLocal();
   }
   return cache;
