@@ -60,11 +60,17 @@ Set `ADMIN_PASSWORD` before the first boot to seed a different password, or chan
 | Audience | Newsletter subscribers + drop-alert signups, CSV export |
 | Settings | Delivery threshold and fee, return window, password change |
 
-Every save is written to the JSON store and is live on the storefront immediately.
+On a persistent Node host, every save is written to the JSON store and is live on the storefront immediately. Vercel deployments are read-only previews; see below.
+
+## Deploying on Vercel
+
+Vercel functions have a read-only deployment filesystem, and their temporary storage is not durable or shared. On Vercel the app therefore starts with the built-in demo catalogue **in read-only preview mode**. Browsing and promo validation work, but orders, contact forms, subscriptions, admin login/changes and uploads return a 503 instead of appearing to succeed and then losing data. The storefront displays a preview notice.
+
+This is a safe workaround for the startup failure, not a production commerce database. To accept real orders or save admin changes, use a Node host with a persistent disk for `data/db.json`, or migrate the database and admin sessions to a durable, shared service. Supabase Storage below only stores images; its environment variables do **not** make the JSON database or in-memory sessions durable. Also change the default admin password before making a writable installation public.
 
 ## Image storage (Supabase)
 
-Admin image uploads are written to `public/uploads/` locally, but hosting platforms like **Vercel have a read-only filesystem**, so those files disappear and the URLs stop opening. When deployed, configure **Supabase Storage** instead — uploads then go to your bucket and the admin receives a permanent public URL:
+Admin image uploads are written to `public/uploads/` by default. On a writable Node host, configure **Supabase Storage** to keep images in a public bucket instead. Vercel uploads remain disabled in the read-only preview described above:
 
 1. In Supabase: **Storage → New bucket** named `product-images` and mark it **public**.
 2. **Project Settings → API**: copy the project URL and the **secret key** (`sb_secret_...` under "Secret keys"; the legacy `service_role` key also works).
@@ -76,7 +82,7 @@ SUPABASE_SECRET_KEY=sb_secret_...
 SUPABASE_BUCKET=product-images   # optional, this is the default
 ```
 
-Without these variables the app keeps the local-disk behaviour, so `npm start` on your machine works unchanged. See `.env.example`.
+Without these variables, a writable Node host uses local disk for uploads. Vercel is currently read-only regardless of these variables, so uploads are disabled there until a durable database and sessions are implemented. See `.env.example`.
 
 ## Project layout
 

@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { read, save, uid } = require('../db');
+const { read, save, uid, READ_ONLY } = require('../db');
 const { evaluatePromo, totalsFor, priceItems } = require('../commerce');
 
 const router = express.Router();
@@ -17,9 +17,12 @@ function publicProduct(p) {
 
 router.get('/bootstrap', (req, res) => {
   const db = read();
-  db.visits = (db.visits || 0) + 1;
-  save();
+  if (!READ_ONLY) {
+    db.visits = (db.visits || 0) + 1;
+    save();
+  }
   res.json({
+    readOnly: READ_ONLY,
     settings: publicSettings(db.settings),
     categories: [...db.categories].sort((a, b) => a.order - b.order),
     products: db.products.map(publicProduct),

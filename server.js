@@ -2,7 +2,7 @@
 
 const express = require('express');
 const path = require('path');
-const { read } = require('./src/db');
+const { read, READ_ONLY } = require('./src/db');
 const publicRoutes = require('./src/routes/public');
 const adminRoutes = require('./src/routes/admin');
 
@@ -16,6 +16,13 @@ app.use(express.json({ limit: '8mb' }));
 
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
+  // Never report a successful order or admin change when it cannot be saved.
+  // Promo validation is a read-only POST and remains available.
+  const safeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+  const promoValidation = req.method === 'POST' && req.path === '/promo/validate';
+  if (READ_ONLY && !safeMethod && !promoValidation) {
+    return res.status(503).json({ error: 'This store is currently in preview mode. Orders and other submissions are unavailable.' });
+  }
   next();
 });
 app.use('/api', publicRoutes);
@@ -48,8 +55,12 @@ app.use((err, req, res, next) => {
 
 read(); // ensure the database exists before the first request
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Ismail Elegance running on http://0.0.0.0:${PORT}`);
-  console.log(`Storefront  →  http://localhost:${PORT}/`);
-  console.log(`Admin panel →  http://localhost:${PORT}/admin`);
-});
+module.exports = app;
+
+if (require.main === module && !process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Ismail Elegance running on http://0.0.0.0:${PORT}`);
+    console.log(`Storefront  →  http://localhost:${PORT}/`);
+    console.log(`Admin panel →  http://localhost:${PORT}/admin`);
+  });
+}

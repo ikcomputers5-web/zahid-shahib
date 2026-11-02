@@ -35,6 +35,13 @@ async function boot() {
 
     document.title = `${data.settings.storeName} — ${data.settings.tagline}`;
     renderChrome();
+    if (data.readOnly) {
+      const notice = document.createElement('div');
+      notice.setAttribute('role', 'status');
+      notice.style.cssText = 'padding:10px 16px;text-align:center;background:#fff2d6;color:#513900;font-size:14px';
+      notice.textContent = 'Store preview: browsing is available, but orders and submissions are temporarily unavailable.';
+      document.getElementById('site-header').before(notice);
+    }
     startRouter();
     setupHeaderScroll();
     setupDelegates();
