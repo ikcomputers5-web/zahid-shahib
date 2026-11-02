@@ -1,0 +1,9 @@
+node_modules/
+image-search/
+public/uploads/*
+!public/uploads/.gitkeep
+.DS_Store
+*.log
+.env
+data/db.json.tmp
+data/db.json
