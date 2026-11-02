@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { read, save, uid } = require('../db');
 const { hashPassword } = require('../seed');
 const auth = require('../auth');
+const storage = require('../storage');
 
 const router = express.Router();
 
@@ -430,14 +431,28 @@ router.delete('/subscribers/:id', (req, res) => {
 
 /* ----------------------------------------------------------------- upload */
 
-router.post('/upload', (req, res) => {
+router.post('/upload', async (req, res) => {
   const dataUrl = String(req.body?.dataUrl || '');
   const match = /^data:(image\/(png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
   if (!match) return res.status(400).json({ error: 'Upload a PNG, JPG or WEBP image.' });
   const buffer = Buffer.from(match[3], 'base64');
   if (buffer.length > 6 * 1024 * 1024) return res.status(413).json({ error: 'Image must be smaller than 6 MB.' });
+  const mime = `image/${match[2] === 'jpg' ? 'jpeg' : match[2]}`;
   const ext = match[2] === 'jpeg' ? 'jpg' : match[2];
   const filename = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+
+  // Vercel's filesystem is read-only, so when Supabase is configured we store
+  // the image in a Storage bucket and hand back its permanent public URL.
+  if (storage.isSupabaseEnabled()) {
+    try {
+      const url = await storage.uploadToSupabase(buffer, filename, mime);
+      return res.status(201).json({ url });
+    } catch (err) {
+      console.error('[upload]', err);
+      return res.status(502).json({ error: err.message });
+    }
+  }
+
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   fs.writeFileSync(path.join(UPLOAD_DIR, filename), buffer);
   res.status(201).json({ url: `/uploads/${filename}` });

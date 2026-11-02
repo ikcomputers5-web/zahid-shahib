@@ -62,6 +62,22 @@ Set `ADMIN_PASSWORD` before the first boot to seed a different password, or chan
 
 Every save is written to the JSON store and is live on the storefront immediately.
 
+## Image storage (Supabase)
+
+Admin image uploads are written to `public/uploads/` locally, but hosting platforms like **Vercel have a read-only filesystem**, so those files disappear and the URLs stop opening. When deployed, configure **Supabase Storage** instead — uploads then go to your bucket and the admin receives a permanent public URL:
+
+1. In Supabase: **Storage → New bucket** named `product-images` and mark it **public**.
+2. **Project Settings → API**: copy the project URL and the **secret key** (`sb_secret_...` under "Secret keys"; the legacy `service_role` key also works).
+3. Set these environment variables on Vercel (Settings → Environment Variables):
+
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_...
+SUPABASE_BUCKET=product-images   # optional, this is the default
+```
+
+Without these variables the app keeps the local-disk behaviour, so `npm start` on your machine works unchanged. See `.env.example`.
+
 ## Project layout
 
 ```
