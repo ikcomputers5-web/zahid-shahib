@@ -1,5 +1,6 @@
 'use strict';
 
+try { require('dotenv').config(); } catch {}
 const express = require('express');
 const path = require('path');
 const { read, ensureReady, READ_ONLY } = require('./src/db');

@@ -5,5 +5,7 @@ public/uploads/*
 .DS_Store
 *.log
 .env
+serviceAccountKey.json
+*.pem
 data/db.json.tmp
 data/db.json
