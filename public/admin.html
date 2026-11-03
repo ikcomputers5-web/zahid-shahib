@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Store admin · Ismail Elegance</title>
     <meta name="robots" content="noindex, nofollow" />
     <link rel="stylesheet" href="/css/admin.css" />
@@ -70,10 +70,11 @@
           <button type="button" data-logout>Sign out</button>
         </div>
       </aside>
+      <div class="side-scrim" data-close-menu aria-hidden="true"></div>
 
       <main class="main">
         <header class="topbar">
-          <button class="topbar__menu" type="button" data-menu aria-label="Toggle menu">☰</button>
+          <button class="topbar__menu" type="button" data-menu aria-label="Open menu" aria-expanded="false" aria-controls="side">☰</button>
           <div>
             <p class="topbar__eyebrow" id="view-eyebrow">Overview</p>
             <h1 id="view-title">Dashboard</h1>

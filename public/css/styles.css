@@ -4825,3 +4825,216 @@ input[type="search"]::-webkit-search-decoration {
     font-size: 10.5px;
   }
 }
+
+/* ------------------------------------------------------- mobile polish pass */
+
+/* `clip` (not `hidden`) keeps the sticky header working while stopping any
+   accidental sideways scroll on small screens. */
+body {
+  overflow-x: clip;
+}
+
+/* Customer-facing tables (account → my orders) */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  -webkit-overflow-scrolling: touch;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 560px;
+}
+
+table.data th {
+  text-align: left;
+  padding: 11px 14px;
+  background: var(--cream);
+  border-bottom: 1px solid var(--line);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+table.data td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+table.data tr:last-child td {
+  border-bottom: 0;
+}
+
+table.data tr.is-clickable {
+  cursor: pointer;
+}
+
+table.data tr.is-clickable:hover {
+  background: rgba(239, 230, 215, 0.32);
+}
+
+@media (max-width: 900px) {
+  .drawer {
+    width: 100%;
+  }
+
+  .drawer__head {
+    padding: 16px 18px;
+  }
+
+  .drawer__foot {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-nav {
+    padding-bottom: calc(32px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 720px) {
+  /* 16px fields stop iOS from zooming the page when a customer taps a form. */
+  .field input,
+  .field select,
+  .field textarea,
+  .qty input,
+  .newsletter input,
+  .newsletter-form input,
+  .search-panel input,
+  .search-field input,
+  .promo-form input,
+  .coupon input {
+    font-size: 16px !important;
+  }
+
+  /* Keep the buy row on one phone screen even with a long price. */
+  .buy-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .buy-row .qty {
+    flex: 0 0 auto;
+  }
+
+  .buy-row .btn {
+    flex: 1 1 190px;
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.35;
+    padding: 15px 14px;
+  }
+
+  .pdp__layout {
+    gap: 22px;
+  }
+
+  .pdp__title {
+    font-size: clamp(1.9rem, 8vw, 2.6rem);
+  }
+
+  .pdp__price {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .pdp__meta div {
+    font-size: 11.5px;
+  }
+
+  .toasts {
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    max-width: none;
+  }
+
+  .header {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .footer {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+
+  .account-page .table-wrap {
+    position: relative;
+  }
+
+  .account-page .table-wrap::after {
+    content: "Swipe →";
+    position: sticky;
+    right: 8px;
+    display: block;
+    margin-top: -22px;
+    padding-bottom: 6px;
+    text-align: right;
+    font-size: 8.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    pointer-events: none;
+  }
+
+  /* Checkout / cart summaries breathe better with full-width actions. */
+  .summary .btn,
+  .cart-layout .btn--block,
+  .checkout-layout .btn--block {
+    width: 100%;
+  }
+
+  .quick-add {
+    gap: 4px;
+  }
+
+  .quick-add select {
+    min-width: 0;
+  }
+
+  /* Tap targets */
+  .qty button {
+    width: 46px;
+  }
+
+  .pdp__thumb {
+    width: 64px;
+  }
+
+  .swatch {
+    width: 34px;
+    height: 34px;
+  }
+
+  .size {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding-inline: 16px;
+  }
+
+  .buy-row .btn {
+    flex-basis: 100%;
+  }
+
+  .hero__cta {
+    flex-wrap: wrap;
+  }
+
+  .hero__cta .btn {
+    flex: 1 1 100%;
+  }
+
+  .section-head .section-head__actions {
+    width: 100%;
+  }
+}

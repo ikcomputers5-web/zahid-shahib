@@ -38,6 +38,18 @@ test('serverless storefront and client routes load without a writable database',
   assert.equal(data.settings.adminPasswordHash, undefined);
 });
 
+test('health endpoint reports deployment mode without leaking secrets', async () => {
+  const res = await request('/api/health');
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.database.mode, 'preview');
+  assert.equal(data.database.readOnly, true);
+  assert.equal(typeof data.firebase.clientConfigured, 'boolean');
+  assert.ok(Array.isArray(data.problems));
+  const text = JSON.stringify(data);
+  assert.ok(!/AIza|BEGIN PRIVATE KEY|service_account/.test(text));
+});
+
 test('serverless mutations are rejected rather than silently lost', async () => {
   for (const url of ['/api/orders', '/api/contact', '/api/subscribe', '/api/admin/login', '/api/admin/upload']) {
     const res = await request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });

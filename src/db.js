@@ -14,10 +14,18 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 const REMOTE = Boolean(process.env.VERCEL) && storage.isSupabaseEnabled();
 const READ_ONLY = Boolean(process.env.VERCEL) && !REMOTE;
 
+// How long a serverless instance may reuse its in-memory copy before it
+// re-reads the shared database. Short, because the admin panel must see its
+// own writes immediately even when a different instance handles the request.
+const REMOTE_CACHE_MS = Math.max(0, Number(process.env.REMOTE_DB_CACHE_MS || 1500));
+
 let cache = null;
 let writeTimer = null;
 let writeQueue = Promise.resolve();
-let readyPromise = null;
+let lastLoadedAt = 0;
+let loadError = null;
+let everLoaded = false;
+let refreshPromise = null;
 
 function ensure() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -26,29 +34,62 @@ function ensure() {
   }
 }
 
-async function loadRemote() {
+async function loadRemote({ seedIfMissing = true } = {}) {
   const remote = await storage.downloadDb();
-  cache = remote ? migrate(remote) : migrate(buildSeed());
-  if (!remote) {
-    // First boot on a serverless host: seed the bucket so later instances
-    // and the admin panel all read the same data.
+  if (remote) {
+    cache = migrate(remote);
+  } else if (cache) {
+    // Keep the copy we already have rather than replacing real data with demo data.
+    return cache;
+  } else if (seedIfMissing) {
+    // First boot on a serverless host: seed the bucket so every instance and
+    // the admin panel read the same data.
+    cache = migrate(buildSeed());
     await storage.uploadDb(JSON.stringify(cache, null, 2));
   }
+  lastLoadedAt = Date.now();
+  everLoaded = true;
+  loadError = null;
+  return cache;
 }
 
-/** Loads the database when running on a serverless host. Resolves immediately otherwise. */
-function ensureReady() {
+/**
+ * Loads the database when running on a serverless host. Resolves immediately
+ * otherwise.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.refresh] Re-read from storage even if the cache is
+ *   fresh. Mutating requests use this so their read-modify-write starts from
+ *   the latest data instead of clobbering another instance's changes.
+ * @param {boolean} [options.throwOnError] Reject instead of serving stale data.
+ */
+function ensureReady({ refresh = false, throwOnError = false } = {}) {
   if (!REMOTE) {
     read();
-    return Promise.resolve();
+    return Promise.resolve(cache);
   }
-  if (!readyPromise) {
-    readyPromise = loadRemote().catch((err) => {
-      console.error('[db] remote load failed, falling back to seed:', err.message);
-      cache = cache || buildSeed();
-    });
+
+  const fresh = everLoaded && !refresh && Date.now() - lastLoadedAt < REMOTE_CACHE_MS;
+  if (fresh) return Promise.resolve(cache);
+
+  // Coalesce concurrent loads/refreshes into one storage request.
+  if (!refreshPromise) {
+    refreshPromise = loadRemote({ seedIfMissing: !everLoaded })
+      .catch((err) => {
+        loadError = err;
+        console.error('[db] remote load failed:', err.message);
+        // Reads keep working from a demo catalogue so the storefront is never
+        // blank, but `save()` refuses to write while this error stands — that
+        // would overwrite the real database with demo data.
+        if (!cache) cache = migrate(buildSeed());
+        if (throwOnError) throw err;
+        return cache;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
   }
-  return readyPromise;
+  return refreshPromise;
 }
 
 function migrate(db) {
@@ -104,6 +145,12 @@ function persist() {
  */
 function save() {
   if (READ_ONLY) throw new Error('Database writes are unavailable in read-only preview mode.');
+  if (REMOTE && (loadError || (!everLoaded && !cache))) {
+    // Writing here would overwrite the real database with demo data.
+    throw new Error(
+      'Storage is temporarily unavailable, so this change was not saved. Please retry in a moment.'
+    );
+  }
   if (!REMOTE) {
     // Local host: batched, synchronous-on-exit writes to the JSON file.
     if (writeTimer) return Promise.resolve();
@@ -114,9 +161,26 @@ function save() {
     return Promise.resolve();
   }
   // Serverless: serialize uploads so concurrent requests cannot interleave.
-  const p = writeQueue.then(persist);
+  const p = writeQueue.then(async () => {
+    await persist();
+    lastLoadedAt = Date.now();
+    everLoaded = true;
+    loadError = null;
+  });
   writeQueue = p.catch(() => {});
   return p;
+}
+
+/** Status for /api/health — never exposes data, only where it lives. */
+function status() {
+  return {
+    mode: READ_ONLY ? 'preview' : REMOTE ? 'remote' : 'local',
+    remote: REMOTE,
+    readOnly: READ_ONLY,
+    loaded: REMOTE ? Boolean(everLoaded || cache) : true,
+    lastLoadedAt: lastLoadedAt ? new Date(lastLoadedAt).toISOString() : null,
+    lastError: loadError ? loadError.message : null
+  };
 }
 
 process.on('exit', () => {
@@ -135,4 +199,13 @@ function uid(prefix = '') {
   ).toLowerCase();
 }
 
-module.exports = { read, save, ensureReady, uid, DB_FILE, READ_ONLY, REMOTE };
+module.exports = {
+  read,
+  save,
+  ensureReady,
+  status,
+  uid,
+  DB_FILE,
+  READ_ONLY,
+  REMOTE
+};
