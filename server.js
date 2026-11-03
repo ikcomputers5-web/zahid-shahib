@@ -16,21 +16,32 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '8mb' }));
 
 app.use('/api', (req, res, next) => {
-  // On a serverless host with Supabase configured, load the remote database
-  // before the first request touches it.
-  ensureReady().then(() => {
-    res.setHeader('Cache-Control', 'no-store');
-    // Never report a successful order or admin change when it cannot be saved.
-    // This only triggers in read-only preview mode (serverless host without a
-    // durable database). Promo validation is a read-only POST and remains available.
-    const safeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-    const promoValidation = req.method === 'POST' && req.path === '/promo/validate';
-    const authCheck = req.method === 'POST' && (req.path === '/auth/google' || req.path === '/auth/me');
-    if (READ_ONLY && !safeMethod && !promoValidation && !authCheck) {
-      return res.status(503).json({ error: 'This store is currently in preview mode. Orders and other submissions are unavailable.' });
+  res.setHeader('Cache-Control', 'no-store');
+  // Never report a successful order or admin change when it cannot be saved.
+  // This only triggers in read-only preview mode (serverless host without a
+  // durable database). Promo validation is a read-only POST and remains available.
+  const safeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+  const promoValidation = req.method === 'POST' && req.path === '/promo/validate';
+  const authCheck = req.method === 'POST' && (req.path === '/auth/google' || req.path === '/auth/me');
+  if (READ_ONLY && !safeMethod && !promoValidation && !authCheck) {
+    return res.status(503).json({ error: 'This store is currently in preview mode. Orders and other submissions are unavailable.' });
+  }
+
+  // On a serverless host with Supabase configured, load the shared database
+  // before the request touches it. Mutations re-read first so a save starts
+  // from the latest data instead of overwriting another instance's changes.
+  const mutating = !safeMethod;
+  ensureReady({ refresh: mutating, throwOnError: mutating }).then(
+    () => next(),
+    (err) => {
+      console.error('[server] database unavailable:', err.message);
+      res.status(503).json({
+        error:
+          'The shared database could not be reached, so nothing was changed. Please retry in a moment.',
+        code: 'DB_UNAVAILABLE'
+      });
     }
-    next();
-  }, next);
+  );
 });
 app.use('/api', publicRoutes);
 app.use('/api/admin', adminRoutes);

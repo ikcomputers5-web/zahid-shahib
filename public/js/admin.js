@@ -41,6 +41,55 @@ const esc = (value) =>
     .replace(/'/g, '&#39;');
 
 const money = (n) => `PKR ${Math.round(Number(n) || 0).toLocaleString('en-PK')}`;
+
+/**
+ * Tolerant number parsing — mirrors the server. Accepts "12,500", "PKR 12500",
+ * "1 250" and Arabic-Indic digits so typing a price never fails silently.
+ */
+const parseNum = (value, fallback = 0) => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+  if (value == null) return fallback;
+  const cleaned = String(value)
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06f0-\u06f9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[^\d.,-]/g, '')
+    .replace(/,/g, '');
+  if (!cleaned || cleaned === '-' || cleaned === '.') return fallback;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+/**
+ * A number field with − / + buttons.
+ *
+ * It is deliberately `type="text"` with `inputmode`: a native number input
+ * rejects commas and many mobile keyboards, which is why an admin could not
+ * change a price on a phone. The value is parsed tolerantly on submit, and
+ * money fields are formatted with thousands separators on blur.
+ */
+const numField = ({
+  name,
+  label,
+  value = '',
+  min = 0,
+  max = '',
+  step = 1,
+  placeholder = '',
+  full = false,
+  hint = '',
+  required = false,
+  money = false
+}) => `
+  <div class="field ${full ? 'field--full' : ''}">
+    <label>${label}</label>
+    <div class="numfield" data-numfield data-min="${min}" data-max="${max}" data-step-size="${step}">
+      <button class="numfield__btn" type="button" data-step="-${step}" aria-label="Decrease ${label}">−</button>
+      <input name="${name}" type="text" inputmode="${money ? 'decimal' : 'numeric'}" autocomplete="off"
+        ${money ? 'data-format="money"' : ''} value="${esc(value)}" placeholder="${esc(placeholder)}" ${required ? 'required' : ''} />
+      <button class="numfield__btn" type="button" data-step="${step}" aria-label="Increase ${label}">+</button>
+    </div>
+    ${hint ? `<span class="field__hint">${hint}</span>` : ''}
+  </div>`;
 const date = (value, opts = { day: '2-digit', month: 'short', year: 'numeric' }) =>
   value ? new Date(value).toLocaleDateString('en-GB', opts) : '—';
 const dateTime = (value) =>
@@ -239,16 +288,34 @@ window.addEventListener('hashchange', () => {
   if (view && view !== currentView) go(view);
 });
 
-const closeSide = () => $('#side')?.classList.remove('is-open');
+function setSide(open) {
+  const side = $('#side');
+  if (!side) return;
+  side.classList.toggle('is-open', open);
+  document.body.classList.toggle('menu-open', open);
+  const btn = $('[data-menu]');
+  if (btn) btn.setAttribute('aria-expanded', String(open));
+}
 
-$('[data-menu]')?.addEventListener('click', () => $('#side').classList.toggle('is-open'));
-$('[data-close-menu]')?.addEventListener('click', closeSide);
+const closeSide = () => setSide(false);
+
+$('[data-menu]')?.addEventListener('click', () => setSide(!$('#side')?.classList.contains('is-open')));
+$$('[data-close-menu]').forEach((el) => el.addEventListener('click', closeSide));
 
 document.addEventListener('click', (e) => {
   const side = $('#side');
   if (!side?.classList.contains('is-open')) return;
   if (e.target.closest('#side') || e.target.closest('[data-menu]')) return;
   closeSide();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSide();
+});
+
+/* Large touch targets: close the drawer after choosing a view. */
+$('#side-nav')?.addEventListener('click', (e) => {
+  if (e.target.closest('[data-view]')) closeSide();
 });
 
 $('[data-logout]')?.addEventListener('click', async () => {
@@ -552,6 +619,32 @@ function productModal(product = null) {
     featured: false
   };
 
+  const colourRows = (p.colors && p.colors.length ? p.colors : [{ name: '', hex: '#c9b79c' }])
+    .map(
+      (c) => `<div class="chiprow" data-colour-row>
+        <input class="chiprow__name" data-colour-name value="${esc(c.name || '')}" placeholder="Ivory Gold" />
+        <input class="chiprow__hex" data-colour-hex type="color" value="${esc(c.hex || '#c9b79c')}" aria-label="Colour swatch" />
+        <button class="chiprow__del" type="button" data-remove-row aria-label="Remove colour">✕</button>
+      </div>`
+    )
+    .join('');
+
+  const sizeChips = (p.sizes || [])
+    .map(
+      (s) => `<span class="chip" data-size="${esc(s)}">${esc(s)}<button type="button" data-remove-size aria-label="Remove size ${esc(s)}">✕</button></span>`
+    )
+    .join('');
+
+  const lineRows = (list) =>
+    (list || [])
+      .map(
+        (row) => `<div class="chiprow chiprow--stack" data-line-row>
+          <textarea data-line-input rows="2" placeholder="One point per row">${esc(row)}</textarea>
+          <button class="chiprow__del" type="button" data-remove-row aria-label="Remove line">✕</button>
+        </div>`
+      )
+      .join('');
+
   const body = `
     <form id="product-form">
       <div class="modal__body">
@@ -562,35 +655,77 @@ function productModal(product = null) {
             <select name="category">${CATEGORIES.map(([slug, label]) => `<option value="${slug}" ${p.category === slug ? 'selected' : ''}>${label}</option>`).join('')}</select>
           </div>
           <div class="field"><label>Collection</label><input name="collection" value="${esc(p.collection || '')}" placeholder="Zar Gul · Festive '26" /></div>
-          <div class="field"><label>Price (PKR) *</label><input name="price" type="number" min="0" step="1" value="${esc(p.price ?? '')}" required /></div>
-          <div class="field"><label>Compare-at price (optional)</label><input name="compareAt" type="number" min="0" step="1" value="${esc(p.compareAt ?? '')}" /></div>
-          <div class="field"><label>Stock</label><input name="stock" type="number" min="0" step="1" value="${esc(p.stock ?? 0)}" /></div>
-          <div class="field"><label>Pieces</label><input name="pieces" value="${esc(p.pieces || '')}" placeholder="3 Piece" /></div>
-          <div class="field"><label>Fabric</label><input name="fabric" value="${esc(p.fabric || '')}" placeholder="Raw silk with net dupatta" /></div>
-          <div class="field"><label>Sizes (comma separated)</label><input name="sizes" value="${esc((p.sizes || []).join(', '))}" placeholder="XS, S, M, L, XL, Unstitched, One Size" /></div>
-          <div class="field field--full">
-            <label>Colours (one per line — Name:#hex)</label>
-            <textarea name="colors" placeholder="Ivory Gold:#e8dfd0">${esc((p.colors || []).map((c) => `${c.name}:${c.hex}`).join('\n'))}</textarea>
+        </div>
+
+        <div class="subsection">
+          <h3 class="subsection__title">Price &amp; stock</h3>
+          <p class="subsection__note">Tap − or + to adjust, or type the number. Commas are fine (12,500).</p>
+          <div class="form-grid form-grid--3">
+            ${numField({ name: 'price', label: 'Price (PKR) *', value: p.price ?? '', step: 500, min: 0, required: true, money: true })}
+            ${numField({ name: 'compareAt', label: 'Compare-at (optional)', value: p.compareAt ?? '', step: 500, min: 0, hint: 'Shown struck through', money: true })}
+            ${numField({ name: 'stock', label: 'Stock', value: p.stock ?? 0, step: 1, min: 0, hint: '0 = sold out' })}
           </div>
-          <div class="field field--full">
-            <label>Images (one URL per line) *</label>
-            <textarea name="images" data-images placeholder="/images/products/example.jpg">${esc((p.images || []).join('\n'))}</textarea>
-            <div class="image-upload">
-              <input type="file" accept="image/png,image/jpeg,image/webp" data-upload />
-              <span class="field__hint">Upload a JPG/PNG/WEBP (max 6 MB) — the URL is added automatically.</span>
+        </div>
+
+        <div class="subsection">
+          <h3 class="subsection__title">Details</h3>
+          <div class="form-grid">
+            <div class="field"><label>Pieces</label><input name="pieces" value="${esc(p.pieces || '')}" placeholder="3 Piece" /></div>
+            <div class="field"><label>Fabric</label><input name="fabric" value="${esc(p.fabric || '')}" placeholder="Raw silk with net dupatta" /></div>
+          </div>
+        </div>
+
+        <div class="field field--full" style="margin-top:14px">
+          <label>Sizes</label>
+          <div class="chips" data-size-list>${sizeChips || '<span class="field__hint">No sizes yet — add one below.</span>'}</div>
+          <div class="chiprow" style="margin-top:6px">
+            <input class="chiprow__name" data-size-input placeholder="e.g. M, XL, Unstitched" />
+            <button class="abtn abtn--ghost abtn--sm" type="button" data-add-size>+ Add size</button>
+          </div>
+        </div>
+
+        <div class="field field--full">
+          <label>Colours</label>
+          <div class="repeater" data-colour-list>${colourRows}</div>
+          <button class="abtn abtn--ghost abtn--sm" type="button" data-add-colour style="margin-top:8px">+ Add colour</button>
+        </div>
+
+        <div class="field field--full">
+          <label>Images *</label>
+          <textarea name="images" data-images hidden>${esc((p.images || []).join('\n'))}</textarea>
+          <div class="picker">
+            <div class="picker__list" data-image-list></div>
+            <div class="picker__add">
+              <input type="url" data-image-url placeholder="Image URL — /images/products/example.jpg" />
+              <button class="abtn abtn--ghost abtn--sm" type="button" data-add-image>Add</button>
             </div>
-            <div class="thumbs" data-thumbs></div>
+            <div class="image-upload">
+              <input type="file" accept="image/png,image/jpeg,image/webp" multiple data-upload />
+              <span class="field__hint">Pick one or more JPG/PNG/WEBP (max 6 MB each) — every file is added to the gallery.</span>
+            </div>
           </div>
-          <div class="field field--full"><label>Description</label><textarea name="description" placeholder="Tell the story of the piece…">${esc(p.description || '')}</textarea></div>
-          <div class="field"><label>Details (one per line)</label><textarea name="details">${esc((p.details || []).join('\n'))}</textarea></div>
-          <div class="field"><label>Care (one per line)</label><textarea name="care">${esc((p.care || []).join('\n'))}</textarea></div>
-          <div class="field field--full"><label>Tags (comma separated)</label><input name="tags" value="${esc((p.tags || []).join(', '))}" placeholder="bridal, hand-embellished" /></div>
-          <div class="field field--full">
-            <label>Visibility</label>
-            <label class="switch"><input type="checkbox" name="isNew" ${p.isNew ? 'checked' : ''} /> Show “New in” badge</label>
-            <label class="switch"><input type="checkbox" name="isDrop" ${p.isDrop ? 'checked' : ''} /> Part of the current drop</label>
-            <label class="switch"><input type="checkbox" name="featured" ${p.featured ? 'checked' : ''} /> Feature in homepage rails</label>
-          </div>
+        </div>
+
+        <div class="field field--full"><label>Description</label><textarea name="description" placeholder="Tell the story of the piece…">${esc(p.description || '')}</textarea></div>
+
+        <div class="field field--full">
+          <label>Details (product page bullet points)</label>
+          <div class="repeater" data-line-list="details">${lineRows(p.details)}</div>
+          <button class="abtn abtn--ghost abtn--sm" type="button" data-add-line="details" style="margin-top:8px">+ Add detail</button>
+        </div>
+
+        <div class="field field--full">
+          <label>Care</label>
+          <div class="repeater" data-line-list="care">${lineRows(p.care)}</div>
+          <button class="abtn abtn--ghost abtn--sm" type="button" data-add-line="care" style="margin-top:8px">+ Add care note</button>
+        </div>
+
+        <div class="field field--full"><label>Tags (comma separated)</label><input name="tags" value="${esc((p.tags || []).join(', '))}" placeholder="bridal, hand-embellished" /></div>
+        <div class="field field--full">
+          <label>Visibility</label>
+          <label class="switch"><input type="checkbox" name="isNew" ${p.isNew ? 'checked' : ''} /> Show “New in” badge</label>
+          <label class="switch"><input type="checkbox" name="isDrop" ${p.isDrop ? 'checked' : ''} /> Part of the current drop</label>
+          <label class="switch"><input type="checkbox" name="featured" ${p.featured ? 'checked' : ''} /> Feature in homepage rails</label>
         </div>
       </div>
       <div class="modal__foot">
@@ -607,64 +742,213 @@ function productModal(product = null) {
 
   const form = $('#product-form', modal);
   const imagesArea = $('[data-images]', form);
-  const thumbs = $('[data-thumbs]', form);
-  const paintThumbs = () => {
-    const urls = imagesArea.value.split('\n').map((s) => s.trim()).filter(Boolean);
-    thumbs.innerHTML = urls.map((u) => `<img src="${esc(u)}" alt="" title="${esc(u)}" />`).join('');
-  };
-  paintThumbs();
-  imagesArea.addEventListener('input', paintThumbs);
+  const imageList = $('[data-image-list]', form);
+  const sizeList = $('[data-size-list]', form);
+  const sizeInput = $('[data-size-input]', form);
 
-  $('[data-upload]', form).addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 6 * 1024 * 1024) {
-      toast('Image must be smaller than 6 MB.', 'error');
+  /* ----- images: read / write the hidden textarea, then repaint the gallery */
+  const imageUrls = () => imagesArea.value.split('\n').map((u) => u.trim()).filter(Boolean);
+  const setImageUrls = (urls) => {
+    imagesArea.value = urls.join('\n');
+    paintImages();
+  };
+  const paintImages = () => {
+    const urls = imageUrls();
+    imageList.innerHTML = urls.length
+      ? urls
+          .map(
+            (url, i) => `<div class="image-row" data-image-row="${i}">
+              <span class="image-row__thumb"><img src="${esc(url)}" alt="" loading="lazy" /></span>
+              <span class="image-row__url" title="${esc(url)}">${esc(url)}</span>
+              <span class="image-row__actions">
+                <button type="button" data-image-move="${i}:-1" aria-label="Move image up" ${i === 0 ? 'disabled' : ''}>↑</button>
+                <button type="button" data-image-move="${i}:1" aria-label="Move image down" ${i === urls.length - 1 ? 'disabled' : ''}>↓</button>
+                <button type="button" data-image-delete="${i}" aria-label="Remove image">✕</button>
+              </span>
+            </div>`
+          )
+          .join('')
+      : '<p class="field__hint">No images yet — add a URL or upload a file.</p>';
+  };
+  paintImages();
+  imagesArea.addEventListener('input', paintImages);
+
+  imageList.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-image-delete]');
+    if (del) {
+      const urls = imageUrls();
+      urls.splice(Number(del.dataset.imageDelete), 1);
+      setImageUrls(urls);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const res = await api('/upload', { method: 'POST', body: { dataUrl: reader.result } });
-        imagesArea.value = (imagesArea.value.trim() ? imagesArea.value.trim() + '\n' : '') + res.url;
-        paintThumbs();
-        toast('Image uploaded.', 'success');
-      } catch (err) {
-        toast(err.message, 'error');
-      }
-    };
-    reader.readAsDataURL(file);
+    const move = e.target.closest('[data-image-move]');
+    if (move) {
+      const [index, delta] = move.dataset.imageMove.split(':').map(Number);
+      const urls = imageUrls();
+      const target = index + delta;
+      if (target < 0 || target >= urls.length) return;
+      [urls[index], urls[target]] = [urls[target], urls[index]];
+      setImageUrls(urls);
+    }
   });
+
+  const addImageUrl = () => {
+    const input = $('[data-image-url]', form);
+    const url = input.value.trim();
+    if (!url) return;
+    setImageUrls([...imageUrls(), url]);
+    input.value = '';
+  };
+  $('[data-add-image]', form).addEventListener('click', addImageUrl);
+  $('[data-image-url]', form).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addImageUrl();
+    }
+  });
+
+  /* ----- multi-file upload: every selected file is uploaded and appended */
+  $('[data-upload]', form).addEventListener('change', async (e) => {
+    const files = [...(e.target.files || [])];
+    if (!files.length) return;
+    const label = e.target;
+    label.disabled = true;
+    let added = 0;
+    for (const file of files) {
+      if (file.size > 6 * 1024 * 1024) {
+        toast(`${file.name} is larger than 6 MB — skipped.`, 'error');
+        continue;
+      }
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const res = await api('/upload', { method: 'POST', body: { dataUrl } });
+        setImageUrls([...imageUrls(), res.url]);
+        added += 1;
+      } catch (err) {
+        toast(`${file.name}: ${err.message}`, 'error');
+      }
+    }
+    label.disabled = false;
+    label.value = '';
+    if (added) toast(`${added} image${added > 1 ? 's' : ''} uploaded.`, 'success');
+  });
+
+  /* ----- sizes */
+  const currentSizes = () => [...sizeList.querySelectorAll('[data-size]')].map((chip) => chip.dataset.size);
+  const paintSizes = (sizes) => {
+    sizeList.innerHTML = sizes.length
+      ? sizes
+          .map(
+            (size) => `<span class="chip" data-size="${esc(size)}">${esc(size)}<button type="button" data-remove-size aria-label="Remove size ${esc(size)}">✕</button></span>`
+          )
+          .join('')
+      : '<span class="field__hint">No sizes yet — add one below.</span>';
+  };
+  const addSize = () => {
+    const value = sizeInput.value.trim();
+    if (!value) return;
+    const sizes = currentSizes();
+    value
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .forEach((size) => {
+        if (!sizes.includes(size)) sizes.push(size);
+      });
+    paintSizes(sizes);
+    sizeInput.value = '';
+  };
+  $('[data-add-size]', form).addEventListener('click', addSize);
+  sizeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addSize();
+    }
+  });
+  sizeList.addEventListener('click', (e) => {
+    if (e.target.closest('[data-remove-size]')) {
+      paintSizes(currentSizes().filter((size) => size !== e.target.closest('[data-size]').dataset.size));
+    }
+  });
+
+  /* ----- repeatable rows (colours, details, care) */
+  const colourList = $('[data-colour-list]', form);
+  const colourRowHtml = () => `<div class="chiprow" data-colour-row>
+      <input class="chiprow__name" data-colour-name placeholder="Ivory Gold" />
+      <input class="chiprow__hex" data-colour-hex type="color" value="#c9b79c" aria-label="Colour swatch" />
+      <button class="chiprow__del" type="button" data-remove-row aria-label="Remove colour">✕</button>
+    </div>`;
+  $('[data-add-colour]', form).addEventListener('click', () => {
+    colourList.insertAdjacentHTML('beforeend', colourRowHtml());
+    colourList.lastElementChild?.querySelector('[data-colour-name]')?.focus();
+  });
+
+  const lineRowHtml = () => `<div class="chiprow chiprow--stack" data-line-row>
+      <textarea data-line-input rows="2" placeholder="One point per row"></textarea>
+      <button class="chiprow__del" type="button" data-remove-row aria-label="Remove line">✕</button>
+    </div>`;
+  $$('[data-add-line]', form).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const list = $(`[data-line-list="${btn.dataset.addLine}"]`, form);
+      list.insertAdjacentHTML('beforeend', lineRowHtml());
+      list.lastElementChild?.querySelector('textarea')?.focus();
+    })
+  );
+
+  form.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-remove-row]');
+    if (!del) return;
+    const row = del.closest('[data-colour-row], [data-line-row]');
+    const list = row?.parentElement;
+    row?.remove();
+    if (list && (list.dataset.colourList !== undefined || list.dataset.lineList) && !list.children.length) {
+      list.insertAdjacentHTML('beforeend', list.dataset.colourList !== undefined ? colourRowHtml() : lineRowHtml());
+    }
+  });
+
+  const collectColours = () =>
+    $$('[data-colour-row]', form)
+      .map((row) => ({
+        name: $('[data-colour-name]', row).value.trim(),
+        hex: $('[data-colour-hex]', row).value.trim() || '#c9b79c'
+      }))
+      .filter((c) => c.name);
+
+  const collectLines = (kind) =>
+    $$(`[data-line-list="${kind}"] [data-line-input]`, form)
+      .map((el) => el.value.trim())
+      .filter(Boolean);
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const submit = $('[data-submit]', form);
+    const price = parseNum(new FormData(form).get('price'), NaN);
+    if (!Number.isFinite(price) || price <= 0) {
+      toast('Enter a price greater than 0 — digits only are fine (12,500 works).', 'error');
+      $('[name="price"]', form)?.focus();
+      return;
+    }
     submit.disabled = true;
+    submit.textContent = 'Saving…';
     const fd = new FormData(form);
+    const compareAt = parseNum(fd.get('compareAt'), 0);
     const payload = {
       name: fd.get('name'),
       subtitle: fd.get('subtitle'),
       category: fd.get('category'),
       collection: fd.get('collection'),
-      price: Number(fd.get('price')),
-      compareAt: fd.get('compareAt') ? Number(fd.get('compareAt')) : null,
-      stock: Number(fd.get('stock')),
+      price,
+      compareAt: compareAt > 0 ? compareAt : null,
+      stock: Math.max(0, Math.round(parseNum(fd.get('stock'), 0))),
       pieces: fd.get('pieces'),
       fabric: fd.get('fabric'),
-      sizes: fd.get('sizes'),
-      images: fd.get('images'),
+      sizes: currentSizes(),
+      images: imageUrls(),
       description: fd.get('description'),
-      details: fd.get('details'),
-      care: fd.get('care'),
+      details: collectLines('details'),
+      care: collectLines('care'),
       tags: fd.get('tags'),
-      colors: String(fd.get('colors') || '')
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          const [name, hex] = line.split(':');
-          return { name: (name || '').trim(), hex: (hex || '#c9b79c').trim() };
-        }),
+      colors: collectColours(),
       isNew: fd.get('isNew') === 'on',
       isDrop: fd.get('isDrop') === 'on',
       featured: fd.get('featured') === 'on',
@@ -685,6 +969,7 @@ function productModal(product = null) {
     } catch (err) {
       toast(err.message, 'error');
       submit.disabled = false;
+      submit.textContent = product ? 'Save changes' : 'Create product';
     }
   });
 }
@@ -772,9 +1057,9 @@ function promoModal(promo = null) {
               <option value="shipping" ${p.type === 'shipping' ? 'selected' : ''}>Free delivery</option>
             </select>
           </div>
-          <div class="field"><label>Value (% or PKR)</label><input name="value" type="number" min="0" step="1" value="${esc(p.value)}" /></div>
-          <div class="field"><label>Minimum order (PKR)</label><input name="minOrder" type="number" min="0" step="1" value="${esc(p.minOrder)}" /></div>
-          <div class="field"><label>Usage limit (0 = unlimited)</label><input name="maxUses" type="number" min="0" step="1" value="${esc(p.maxUses)}" /></div>
+          ${numField({ name: 'value', label: 'Value (% or PKR)', value: p.value, step: 5, min: 0 })}
+          ${numField({ name: 'minOrder', label: 'Minimum order (PKR)', value: p.minOrder, step: 500, min: 0, money: true })}
+          ${numField({ name: 'maxUses', label: 'Usage limit (0 = unlimited)', value: p.maxUses, step: 1, min: 0 })}
           <div class="field"><label>Expires on (optional)</label><input name="expiresAt" type="date" value="${p.expiresAt ? new Date(p.expiresAt).toISOString().slice(0, 10) : ''}" /></div>
           <div class="field field--full"><label>Customer-facing description</label><input name="description" value="${esc(p.description || '')}" placeholder="25% off orders above PKR 15,000" /></div>
           <div class="field field--full"><label class="switch"><input type="checkbox" name="active" ${p.active ? 'checked' : ''} /> Active (customers can use this code)</label></div>
@@ -793,9 +1078,9 @@ function promoModal(promo = null) {
     const payload = {
       code: fd.get('code'),
       type: fd.get('type'),
-      value: Number(fd.get('value')) || 0,
-      minOrder: Number(fd.get('minOrder')) || 0,
-      maxUses: Number(fd.get('maxUses')) || 0,
+      value: Math.max(0, parseNum(fd.get('value'), 0)),
+      minOrder: Math.max(0, parseNum(fd.get('minOrder'), 0)),
+      maxUses: Math.max(0, Math.round(parseNum(fd.get('maxUses'), 0))),
       expiresAt: fd.get('expiresAt') || null,
       description: fd.get('description'),
       active: fd.get('active') === 'on'
@@ -1006,7 +1291,7 @@ async function renderStorefront() {
       </div>
 
       <div class="card">
-        <div class="card__head" style="margin-bottom:6px"><div><h2 class="section-title">Hero slides</h2><p class="section-note" style="margin:0">Up to five. The first slide loads first.</p></div><button class="abtn abtn--ghost abtn--sm" type="button" data-add-slide>+ Add slide</button></div>
+        <div class="card__head" style="margin-bottom:6px"><div><h2 class="section-title">Hero slides</h2><p class="section-note" style="margin:0">Up to eight. The first slide loads first.</p></div><button class="abtn abtn--ghost abtn--sm" type="button" data-add-slide>+ Add slide</button></div>
         <div data-slides>
           ${slides
             .map(
@@ -1050,10 +1335,18 @@ async function renderStorefront() {
           <div class="field field--full"><label>Story (blank line = new paragraph)</label><textarea name="aboutText" style="min-height:130px">${esc(settings.aboutText)}</textarea></div>
           <div class="field field--full"><label>Story image</label><input name="aboutImage" value="${esc(settings.aboutImage)}" /><div class="image-upload"><input type="file" accept="image/*" data-about-upload /><span class="field__hint">Upload a wide image of the atelier</span></div></div>
         </div>
-        <div class="form-grid form-grid--3" style="margin-top:12px">
+        <div class="card__head" style="margin:18px 0 8px">
+          <div><h3 class="section-title" style="font-size:19px">House values</h3><p class="section-note" style="margin:0">Up to six cards. Add or remove as many as you show on the site.</p></div>
+          <button class="abtn abtn--ghost abtn--sm" type="button" data-add-value>+ Add value</button>
+        </div>
+        <div class="repeater repeater--grid" data-value-list>
           ${values
             .map(
-              (v, i) => `<div class="field"><label>Value ${i + 1} title</label><input name="v-title-${i}" value="${esc(v.title)}" /><label style="margin-top:6px">Text</label><textarea name="v-text-${i}" style="min-height:70px">${esc(v.text)}</textarea></div>`
+              (v, i) => `<div class="value-card" data-value-row>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Value ${i + 1}</strong><button class="iconbtn iconbtn--danger" type="button" data-remove-row aria-label="Remove value">✕</button></div>
+                <div class="field"><label>Title</label><input data-value-title value="${esc(v.title)}" /></div>
+                <div class="field"><label>Text</label><textarea data-value-text style="min-height:70px">${esc(v.text)}</textarea></div>
+              </div>`
             )
             .join('')}
         </div>
@@ -1072,6 +1365,43 @@ async function renderStorefront() {
     </form>`;
 
   const form = $('#storefront-form');
+
+  const valueList = $('[data-value-list]', form);
+  const renumberValues = () =>
+    $$('[data-value-row]', form).forEach((row, i) => {
+      const label = $('strong', row);
+      if (label) label.textContent = `Value ${i + 1}`;
+    });
+  const collectValues = () =>
+    $$('[data-value-row]', form)
+      .map((row) => ({
+        title: $('[data-value-title]', row).value.trim(),
+        text: $('[data-value-text]', row).value.trim()
+      }))
+      .filter((v) => v.title || v.text);
+
+  $('[data-add-value]')?.addEventListener('click', () => {
+    if ($$('[data-value-row]', form).length >= 6) {
+      toast('Six values is the maximum — remove one first.', 'error');
+      return;
+    }
+    valueList.insertAdjacentHTML(
+      'beforeend',
+      `<div class="value-card" data-value-row>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Value</strong><button class="iconbtn iconbtn--danger" type="button" data-remove-row aria-label="Remove value">✕</button></div>
+        <div class="field"><label>Title</label><input data-value-title placeholder="Hand embroidery" /></div>
+        <div class="field"><label>Text</label><textarea data-value-text style="min-height:70px" placeholder="Every motif is stitched by hand in our Lahore atelier."></textarea></div>
+      </div>`
+    );
+    renumberValues();
+  });
+
+  form.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-remove-row]');
+    if (!del || !del.closest('[data-value-row]')) return;
+    del.closest('[data-value-row]').remove();
+    renumberValues();
+  });
 
   const collectSlides = () =>
     $$('[data-slide]', form).map((block) => ({
@@ -1105,8 +1435,8 @@ async function renderStorefront() {
   };
 
   $('[data-add-slide]').addEventListener('click', () => {
-    if ($$('[data-slide]', form).length >= 5) {
-      toast('Five slides is plenty — remove one first.', 'error');
+    if ($$('[data-slide]', form).length >= 8) {
+      toast('Eight slides is plenty — remove one first.', 'error');
       return;
     }
     const wrap = $('[data-slides]', form);
@@ -1151,7 +1481,7 @@ async function renderStorefront() {
       aboutImage: fd.get('aboutImage'),
       instagramPosts: String(fd.get('instagramPosts') || '').split('\n').map((s) => s.trim()).filter(Boolean),
       heroSlides: collectSlides(),
-      values: values.map((_, i) => ({ title: fd.get(`v-title-${i}`), text: fd.get(`v-text-${i}`) }))
+      values: collectValues()
     };
     try {
       await api('/settings', { method: 'PUT', body: payload });
@@ -1161,6 +1491,15 @@ async function renderStorefront() {
     } catch (err) {
       toast(err.message, 'error');
     }
+  });
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read that file.'));
+    reader.readAsDataURL(file);
   });
 }
 
@@ -1370,17 +1709,25 @@ async function renderSettings() {
       <p class="section-note">Used to calculate every bag and checkout total.</p>
       <form id="shipping-form">
         <div class="form-grid form-grid--3">
-          <div class="field"><label>Free delivery threshold (PKR)</label><input name="freeShippingThreshold" type="number" min="0" value="${esc(settings.freeShippingThreshold)}" /></div>
-          <div class="field"><label>Delivery fee (PKR)</label><input name="shippingFee" type="number" min="0" value="${esc(settings.shippingFee)}" /></div>
-          <div class="field"><label>Exchange window (days)</label><input name="returnWindow" type="number" min="0" value="${esc(settings.returnWindow)}" /></div>
+          ${numField({ name: 'freeShippingThreshold', label: 'Free delivery threshold (PKR)', value: settings.freeShippingThreshold, step: 500, min: 0, money: true })}
+          ${numField({ name: 'shippingFee', label: 'Delivery fee (PKR)', value: settings.shippingFee, step: 50, min: 0, money: true })}
+          ${numField({ name: 'returnWindow', label: 'Exchange window (days)', value: settings.returnWindow, step: 1, min: 0 })}
         </div>
         <div class="form-actions"><button class="abtn" type="submit">Save delivery settings</button></div>
       </form>
     </div>
 
     <div class="card">
+      <div class="card__head" style="margin-bottom:6px">
+        <div><h2 class="section-title">System check</h2><p class="section-note" style="margin:0">Firebase sign-in, storage and database status on this deployment.</p></div>
+        <button class="abtn abtn--ghost abtn--sm" type="button" data-refresh-health>Re-check</button>
+      </div>
+      <div class="health" data-health><div class="empty" style="padding:20px">Checking…</div></div>
+    </div>
+
+    <div class="card">
       <h2 class="section-title">Admin password</h2>
-      <p class="section-note">You are signed in with the demo password until you change it. Use at least 6 characters.</p>
+      <p class="section-note">Change the demo password before sharing the panel. Use at least 6 characters.</p>
       <form id="password-form">
         <div class="form-grid form-grid--3">
           <div class="field"><label>Current password</label><input name="current" type="password" autocomplete="current-password" required /></div>
@@ -1393,13 +1740,39 @@ async function renderSettings() {
 
     <div class="card">
       <h2 class="section-title">About this build</h2>
-      <p class="section-note">Everything is stored locally in <strong>data/db.json</strong> and served by the same Node process as the storefront.</p>
+      <p class="section-note">On a Vercel deployment the catalogue lives in Supabase Storage and every save is written there immediately.</p>
       <div class="mini-list">
-        <div class="mini-row"><div class="mini-row__body"><strong>Node + Express</strong><span>No external database to configure</span></div><span class="tag tag--green">Running</span></div>
-        <div class="mini-row"><div class="mini-row__body"><strong>${settings.storeName}</strong><span>${esc(settings.email)} · ${esc(settings.phone)}</span></div><span class="tag">Live</span></div>
+        <div class="mini-row"><div class="mini-row__body"><strong>Node + Express</strong><span>Storefront and admin share one process</span></div><span class="tag tag--green">Running</span></div>
+        <div class="mini-row"><div class="mini-row__body"><strong>${esc(settings.storeName)}</strong><span>${esc(settings.email)} · ${esc(settings.phone)}</span></div><span class="tag">Live</span></div>
         <div class="mini-row"><div class="mini-row__body"><strong>Demo checkout</strong><span>No card data is collected or stored</span></div><span class="tag tag--gold">Simulated</span></div>
       </div>
     </div>`;
+
+  /* ----- system check */
+  const healthBox = $('[data-health]');
+  const loadHealth = async () => {
+    if (!healthBox) return;
+    healthBox.innerHTML = '<div class="empty" style="padding:16px">Checking…</div>';
+    try {
+      const res = await fetch('/api/health', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await res.json();
+      const fb = data.firebase || {};
+      const db = data.database || {};
+      const row = (label, ok, note) =>
+        `<div class="health__row"><span class="health__dot ${ok ? 'is-ok' : 'is-bad'}"></span><div><strong>${label}</strong><span>${esc(note)}</span></div><span class="tag ${ok ? 'tag--green' : 'tag--wine'}">${ok ? 'OK' : 'Check'}</span></div>`;
+      healthBox.innerHTML = `
+        ${row('Database', db.mode === 'local' || (db.remote && db.loaded), db.mode === 'local' ? 'Local data/db.json (writable)' : db.mode === 'remote' ? `Supabase storage · ${db.loaded ? 'connected' : 'not loaded yet'}` : 'Read-only preview — add Supabase env vars')}
+        ${row('Firebase browser config', fb.clientConfigured, fb.clientConfigured ? `Project ${fb.projectId || '—'} · domain ${fb.authDomain || '—'}` : 'FIREBASE_API_KEY / FIREBASE_PROJECT_ID missing')}
+        ${row('Firebase Admin SDK', fb.adminInitialized, fb.adminInitialized ? `Verified with ${fb.credentialSource || 'service account'}${fb.serviceAccount?.projectId ? ` · project ${fb.serviceAccount.projectId}` : ''}` : fb.credentialSource ? 'Credentials present but the SDK failed to start' : 'No FIREBASE_SERVICE_ACCOUNT on the server')}
+        ${row('Admin allow-list', true, fb.adminEmailCount ? `${fb.adminEmailCount} Google account(s) allowed` : 'Open — any Google account can sign in')}
+        ${(data.problems || []).length ? `<div class="health__problems">${data.problems.map((p) => `<p>⚠ ${esc(p)}</p>`).join('')}</div>` : ''}
+        <p class="field__hint" style="margin-top:10px">Environment: ${esc(data.environment || '—')}${data.commit ? ` · commit ${esc(String(data.commit).slice(0, 7))}` : ''}. Firebase Console → Authentication → Settings → Authorized domains must include this domain.</p>`;
+    } catch (err) {
+      healthBox.innerHTML = `<div class="empty" style="padding:16px">Could not reach /api/health — ${esc(err.message)}</div>`;
+    }
+  };
+  loadHealth();
+  $('[data-refresh-health]')?.addEventListener('click', loadHealth);
 
   $('#shipping-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1408,9 +1781,9 @@ async function renderSettings() {
       await api('/settings', {
         method: 'PUT',
         body: {
-          freeShippingThreshold: Number(fd.get('freeShippingThreshold')),
-          shippingFee: Number(fd.get('shippingFee')),
-          returnWindow: Number(fd.get('returnWindow'))
+          freeShippingThreshold: Math.max(0, Math.round(parseNum(fd.get('freeShippingThreshold'), 0))),
+          shippingFee: Math.max(0, Math.round(parseNum(fd.get('shippingFee'), 0))),
+          returnWindow: Math.max(0, Math.round(parseNum(fd.get('returnWindow'), 0)))
         }
       });
       toast('Delivery settings saved.', 'success');
@@ -1471,6 +1844,93 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeModal();
+});
+
+/* Number steppers (price, stock, delivery…) — delegated so every view,
+   including modals created later, gets − / + buttons. */
+document.addEventListener('click', (e) => {
+  const stepBtn = e.target.closest('[data-step]');
+  if (!stepBtn) return;
+  const wrap = stepBtn.closest('[data-numfield]');
+  const input = wrap?.querySelector('input');
+  if (!input) return;
+  const step = Number(stepBtn.dataset.step) || 0;
+  const min = wrap.dataset.min === '' ? -Infinity : Number(wrap.dataset.min);
+  const max = wrap.dataset.max === '' ? Infinity : Number(wrap.dataset.max);
+  const next = Math.min(max, Math.max(min, parseNum(input.value, 0) + step));
+  input.value = formatFieldValue(input, next);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+});
+
+/* Show money values with thousands separators when the field is not being
+   edited, and strip them again on focus so typing is never blocked. */
+function formatFieldValue(input, value = parseNum(input.value, NaN)) {
+  if (!Number.isFinite(value)) return input.value;
+  if (input.dataset.format === 'money') return value.toLocaleString('en-PK');
+  return String(value);
+}
+
+document.addEventListener('focusin', (e) => {
+  const input = e.target;
+  if (input.matches && input.matches('[data-format="money"]') && input.value.includes(',')) {
+    input.value = String(parseNum(input.value, ''));
+  }
+});
+
+document.addEventListener('focusout', (e) => {
+  const input = e.target;
+  if (input.matches && input.matches('[data-format="money"]') && String(input.value).trim()) {
+    input.value = formatFieldValue(input);
+  }
+});
+
+/* Select a number field's contents on focus so typing replaces the old value
+   instead of appending to it (a common “I can't change this number” trap). */
+document.addEventListener('focusin', (e) => {
+  if (e.target.matches('input[type="number"], [data-numfield] input')) {
+    requestAnimationFrame(() => {
+      try {
+        e.target.select();
+      } catch (_) {}
+    });
+  }
+});
+
+/* On iOS, tapping a numeric field should open the numeric keypad, and the
+   Enter key should submit the form it belongs to. */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.matches('input[type="number"]')) {
+    const form = e.target.form;
+    if (form) {
+      e.preventDefault();
+      form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', { cancelable: true }));
+    }
+  }
+});
+
+/* ------------------------------------------------- table labels (mobile) */
+
+/**
+ * On phones the admin tables are rendered as stacked cards. CSS uses
+ * td[data-label] for the field name, so copy the header text onto every cell
+ * whenever a table is (re)rendered.
+ */
+function labelTables(root = document) {
+  $$('table.data', root).forEach((table) => {
+    const heads = $$('thead th', table).map((th) => th.textContent.trim());
+    if (!heads.length) return;
+    $$('tbody tr', table).forEach((tr) => {
+      $$('td', tr).forEach((td, i) => {
+        if (heads[i]) td.dataset.label = heads[i];
+      });
+    });
+  });
+}
+
+const tableObserver = new MutationObserver(() => labelTables());
+[$('#view'), $('#modal-root')].forEach((host) => {
+  if (host) tableObserver.observe(host, { childList: true, subtree: true });
 });
 
 /* ------------------------------------------------------------------- boot */

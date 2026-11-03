@@ -9,6 +9,7 @@ const { hashPassword } = require('../seed');
 const auth = require('../auth');
 const storage = require('../storage');
 const firebase = require('../firebase');
+const { toNumber } = require('../numbers');
 
 const router = express.Router();
 
@@ -26,6 +27,7 @@ const SETTINGS_KEYS = [
 ];
 
 const ORDER_STATUSES = ['pending', 'confirmed', 'packed', 'shipped', 'delivered', 'cancelled'];
+
 
 function slugify(text) {
   return String(text || '')
@@ -48,9 +50,10 @@ function uniqueSlug(base, products, ignoreId) {
 function normalizeProduct(input, products, existing) {
   const name = String(input.name || existing?.name || '').trim();
   if (name.length < 2) throw new Error('Product name is required.');
-  const price = Math.round(Number(input.price));
+  const price = Math.round(toNumber(input.price));
   if (!Number.isFinite(price) || price <= 0) throw new Error('A valid price is required.');
-  const compareAtRaw = input.compareAt === '' || input.compareAt == null ? null : Math.round(Number(input.compareAt));
+  const compareAtNumber = toNumber(input.compareAt, NaN);
+  const compareAtRaw = Number.isFinite(compareAtNumber) && compareAtNumber > 0 ? Math.round(compareAtNumber) : null;
   const sizes = (Array.isArray(input.sizes) ? input.sizes : String(input.sizes || '').split(','))
     .map((s) => String(s).trim())
     .filter(Boolean);
@@ -85,7 +88,7 @@ function normalizeProduct(input, products, existing) {
     description: String(input.description || existing?.description || '').trim(),
     details,
     care,
-    stock: Math.max(0, parseInt(input.stock, 10) || 0),
+    stock: Math.max(0, Math.round(toNumber(input.stock, 0))),
     isNew: Boolean(input.isNew),
     isDrop: Boolean(input.isDrop),
     featured: Boolean(input.featured),
@@ -108,6 +111,18 @@ function normalizeProduct(input, products, existing) {
 }
 
 /* ------------------------------------------------------------------ auth */
+
+router.get('/diagnostics', (req, res) => {
+  const dbState = require('../db').status();
+  res.json({
+    ok: true,
+    environment: process.env.VERCEL ? 'vercel' : 'node',
+    commit: process.env.VERCEL_GIT_COMMIT_SHA || null,
+    database: dbState,
+    firebase: firebase.diagnostics(),
+    adminEmails: firebase.getAdminEmails().length
+  });
+});
 
 router.get('/firebase-config', (req, res) => {
   const cfg = firebase.getClientConfig();
@@ -303,7 +318,7 @@ function normalizePromo(input, existing) {
   const code = String(input.code || existing?.code || '').trim().toUpperCase().replace(/\s+/g, '');
   if (code.length < 3) throw new Error('Promo code needs at least 3 characters.');
   const type = ['percent', 'fixed', 'shipping'].includes(input.type) ? input.type : 'percent';
-  const value = type === 'shipping' ? 0 : Number(input.value);
+  const value = type === 'shipping' ? 0 : toNumber(input.value, 0);
   if (type === 'percent' && (!value || value <= 0 || value > 90)) throw new Error('Percentage must be between 1 and 90.');
   if (type === 'fixed' && (!value || value <= 0)) throw new Error('Enter a discount amount.');
   return {
@@ -312,7 +327,7 @@ function normalizePromo(input, existing) {
     code,
     type,
     value: Math.round(value || 0),
-    minOrder: Math.max(0, Math.round(Number(input.minOrder) || 0)),
+    minOrder: Math.max(0, Math.round(toNumber(input.minOrder, 0))),
     maxUses: Math.max(0, parseInt(input.maxUses, 10) || 0),
     used: existing?.used || 0,
     active: input.active !== false,
@@ -412,14 +427,14 @@ router.put('/settings', ah(async (req, res) => {
     if (!(key in input)) continue;
     let value = input[key];
     if (['freeShippingThreshold', 'shippingFee', 'returnWindow'].includes(key)) {
-      value = Math.max(0, Number(value) || 0);
+      value = Math.max(0, toNumber(value, 0));
     }
     if (key === 'announcementActive') value = Boolean(value);
     if (key === 'instagramPosts' && Array.isArray(value)) {
       value = value.map((v) => String(v).trim()).filter(Boolean);
     }
     if (key === 'heroSlides' && Array.isArray(value)) {
-      value = value.slice(0, 5).map((slide) => ({
+      value = value.slice(0, 8).map((slide) => ({
         image: String(slide.image || '').trim(),
         kicker: String(slide.kicker || '').trim(),
         title: String(slide.title || '').trim(),

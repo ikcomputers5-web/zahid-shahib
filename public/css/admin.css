@@ -1418,10 +1418,7 @@ table.data tr.is-clickable {
   .topbar__actions {
     width: 100%;
     margin-left: 0;
-  }
-
-  .topbar__actions {
-    display: none;
+    display: flex;
   }
 
   .modal-wrap {
@@ -1430,5 +1427,624 @@ table.data tr.is-clickable {
 
   .modal {
     min-height: 100vh;
+  }
+}
+
+/* ==========================================================================
+   New form controls: number steppers, repeaters, size chips, image manager
+   ========================================================================== */
+
+.numfield {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line-dark);
+  background: var(--paper);
+}
+
+.numfield input {
+  flex: 1;
+  min-width: 0;
+  border: 0 !important;
+  border-radius: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: 10px 4px !important;
+  background: transparent;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.numfield input::-webkit-outer-spin-button,
+.numfield input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.numfield:focus-within {
+  border-color: var(--ink);
+}
+
+.numfield__btn {
+  width: 38px;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: var(--cream);
+  border: 0;
+  border-right: 1px solid var(--line);
+  flex-shrink: 0;
+  transition: background 0.18s;
+}
+
+.numfield__btn:last-child {
+  border-right: 0;
+  border-left: 1px solid var(--line);
+}
+
+.numfield__btn:hover {
+  background: var(--sand);
+  color: var(--ink);
+}
+
+.numfield__btn:active {
+  background: var(--ink);
+  color: var(--cream);
+}
+
+.subsection {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.subsection__title {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.subsection__note {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin: 3px 0 10px;
+}
+
+/* size chips */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--line-dark);
+  background: var(--cream);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.chip button {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 3px;
+}
+
+.chip button:hover {
+  color: var(--wine);
+}
+
+/* repeatable rows */
+.repeater {
+  display: grid;
+  gap: 8px;
+}
+
+.repeater--grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.value-card {
+  border: 1px solid var(--line);
+  background: var(--cream);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.chiprow {
+  display: grid;
+  grid-template-columns: 1fr 46px 34px;
+  gap: 8px;
+  align-items: center;
+}
+
+.chiprow--stack {
+  grid-template-columns: 1fr 34px;
+  align-items: start;
+}
+
+.chiprow input[type="text"],
+.chiprow input:not([type]),
+.chiprow textarea {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line-dark);
+  background: var(--paper);
+  font-size: 12.5px;
+}
+
+.chiprow textarea {
+  min-height: 54px;
+  resize: vertical;
+}
+
+.chiprow__hex {
+  width: 100%;
+  height: 38px;
+  padding: 2px;
+  border: 1px solid var(--line-dark);
+  background: var(--paper);
+}
+
+.chiprow__del {
+  width: 34px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-dark);
+  color: var(--muted);
+  background: var(--paper);
+}
+
+.chiprow__del:hover {
+  background: var(--wine);
+  border-color: var(--wine);
+  color: #fff;
+}
+
+/* image manager */
+.picker {
+  display: grid;
+  gap: 8px;
+}
+
+.picker__list {
+  display: grid;
+  gap: 6px;
+  border: 1px dashed var(--line-dark);
+  padding: 8px;
+  background: var(--cream);
+}
+
+.image-row {
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+}
+
+.image-row__thumb {
+  width: 34px;
+  height: 44px;
+  overflow: hidden;
+  background: var(--sand);
+}
+
+.image-row__thumb img {
+  object-fit: cover;
+}
+
+.image-row__url {
+  font-size: 11px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-row__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.image-row__actions button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.image-row__actions button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.image-row__actions button:not(:disabled):hover {
+  background: var(--ink);
+  color: var(--cream);
+  border-color: var(--ink);
+}
+
+.picker__add {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.picker__add input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-dark);
+  background: var(--paper);
+  font-size: 12.5px;
+}
+
+/* system-check list */
+.health {
+  display: grid;
+  gap: 0;
+}
+
+.health__row {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.health__row:last-of-type {
+  border-bottom: 0;
+}
+
+.health__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-dark);
+}
+
+.health__dot.is-ok {
+  background: var(--green);
+}
+
+.health__dot.is-bad {
+  background: var(--wine);
+}
+
+.health__row strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.health__row span {
+  display: block;
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.health__problems {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(106, 47, 47, 0.07);
+  border-left: 2px solid var(--wine);
+  font-size: 11px;
+  color: var(--wine);
+}
+
+.health__problems p {
+  margin: 0 0 4px;
+}
+
+.health__problems p:last-child {
+  margin-bottom: 0;
+}
+
+/* scrim behind the mobile sidebar */
+.side-scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  background: rgba(23, 20, 15, 0.45);
+}
+
+/* ==========================================================================
+   Mobile pass — the admin is used on phones as much as on a laptop
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  body.menu-open {
+    overflow: hidden;
+  }
+
+  body.menu-open .side-scrim {
+    display: block;
+  }
+
+  .side {
+    width: min(300px, 86vw);
+  }
+
+  .side__nav button {
+    padding: 14px 14px;
+    font-size: 14px;
+  }
+
+  .side__foot a,
+  .side__foot button {
+    padding: 12px 22px;
+  }
+
+  .repeater--grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  /* 16px keeps iOS Safari from zooming the page when a field is focused —
+     which is what made number fields feel impossible to edit on a phone. */
+  .field input,
+  .field select,
+  .field textarea,
+  .form-grid input,
+  .form-grid select,
+  .form-grid textarea,
+  .numfield input,
+  .chiprow input,
+  .chiprow textarea,
+  .picker__add input,
+  .search-input input {
+    font-size: 16px !important;
+  }
+
+  .abtn {
+    min-height: 44px;
+  }
+
+  .abtn--sm {
+    min-height: 38px;
+  }
+
+  .iconbtn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .numfield__btn {
+    width: 46px;
+    min-height: 46px;
+    font-size: 20px;
+  }
+
+  .filter-pills {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    width: 100%;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .filter-pills::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-pills button {
+    flex-shrink: 0;
+    min-height: 38px;
+  }
+
+  .toolbar {
+    gap: 8px;
+  }
+
+  .toolbar .search-input {
+    max-width: none;
+    min-width: 100%;
+    flex-basis: 100%;
+  }
+
+  .toolbar > .abtn {
+    margin-left: 0 !important;
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    padding: 12px 16px;
+  }
+
+  .topbar h1 {
+    font-size: 23px;
+  }
+
+  .topbar__actions .abtn {
+    flex: 1;
+    padding-inline: 10px;
+    font-size: 9px;
+  }
+
+  .view {
+    padding: 16px 14px 40px;
+  }
+
+  .card {
+    padding: 16px 14px;
+  }
+
+  /* Tables become stacked cards — no sideways scrolling on a phone. */
+  .table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  table.data {
+    min-width: 0;
+    display: block;
+  }
+
+  table.data thead {
+    display: none;
+  }
+
+  table.data tbody {
+    display: block;
+  }
+
+  table.data tbody tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    padding: 13px 14px;
+    margin-bottom: 10px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+  }
+
+  table.data tbody tr:hover {
+    background: var(--paper);
+  }
+
+  table.data tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  table.data tbody td {
+    display: block;
+    padding: 0;
+    border: 0;
+    font-size: 13px;
+  }
+
+  table.data tbody td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-size: 8px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  table.data tbody td[data-label=""]::before,
+  table.data tbody td:not([data-label])::before {
+    display: none;
+  }
+
+  table.data tbody td:first-child {
+    grid-column: 1 / -1;
+  }
+
+  table.data tbody td:last-child {
+    grid-column: 1 / -1;
+  }
+
+  table.data tbody td:last-child::before {
+    display: none;
+  }
+
+  .row-actions {
+    justify-content: flex-start;
+  }
+
+  .row-actions .iconbtn {
+    width: 42px;
+    height: 42px;
+  }
+
+  .cell-product {
+    min-width: 0;
+  }
+
+  .stats-grid {
+    gap: 8px;
+  }
+
+  .stat {
+    padding: 14px 14px;
+  }
+
+  .stat__value {
+    font-size: 24px;
+  }
+
+  .modal-wrap {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .modal,
+  .modal--md,
+  .modal--sm {
+    width: 100%;
+    min-height: 100dvh;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .modal__head {
+    padding: 12px 14px;
+    position: sticky;
+    top: 0;
+  }
+
+  .modal__head h2 {
+    font-size: 20px;
+  }
+
+  .modal__body {
+    padding: 16px 14px 24px;
+  }
+
+  .modal__foot {
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    gap: 8px;
+  }
+
+  .modal__foot .abtn {
+    flex: 1;
+    min-height: 46px;
+  }
+
+  .toasts {
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    max-width: none;
+  }
+
+  .main__foot {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 420px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
   }
 }

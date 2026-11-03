@@ -1,10 +1,11 @@
 'use strict';
 
 const express = require('express');
-const { read, save, uid, READ_ONLY, REMOTE } = require('../db');
+const { read, save, uid, READ_ONLY, REMOTE, status: dbStatus } = require('../db');
 const { evaluatePromo, totalsFor, priceItems } = require('../commerce');
 const auth = require('../auth');
 const firebase = require('../firebase');
+const storage = require('../storage');
 
 const router = express.Router();
 
@@ -19,6 +20,39 @@ function publicSettings(settings) {
 function publicProduct(p) {
   return p;
 }
+
+/**
+ * Deployment self-check. Reports only whether each integration is wired up —
+ * never secret values. Handy on Vercel:
+ *   /api/health
+ */
+router.get('/health', ah(async (req, res) => {
+  const status = dbStatus();
+  const firebaseReport = firebase.diagnostics();
+  const storageReport = {
+    supabase: storage.isSupabaseEnabled(),
+    imageBucket: storage.BUCKET,
+    databaseBucket: storage.DB_BUCKET
+  };
+
+  const problems = [...firebaseReport.errors];
+  if (status.readOnly) {
+    problems.push('No Supabase storage configured — the store is in read-only preview mode.');
+  }
+  if (status.lastError) problems.push(`Database: ${status.lastError}`);
+
+  res.status(200).json({
+    ok: problems.length === 0,
+    time: new Date().toISOString(),
+    environment: process.env.VERCEL ? 'vercel' : 'node',
+    commit: process.env.VERCEL_GIT_COMMIT_SHA || null,
+    branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+    database: status,
+    storage: storageReport,
+    firebase: firebaseReport,
+    problems
+  });
+}));
 
 router.get('/bootstrap', ah(async (req, res) => {
   const db = read();
