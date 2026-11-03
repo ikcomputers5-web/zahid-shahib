@@ -1389,10 +1389,6 @@ table.data tr.is-clickable {
     display: grid;
   }
 
-  .topbar__actions .abtn--ghost {
-    display: none;
-  }
-
   .main__foot {
     flex-direction: column;
     gap: 6px;
