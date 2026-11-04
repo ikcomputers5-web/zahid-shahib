@@ -6,6 +6,8 @@ const path = require('path');
 const { read, ensureReady, READ_ONLY } = require('./src/db');
 const publicRoutes = require('./src/routes/public');
 const adminRoutes = require('./src/routes/admin');
+const { buildSitemap, buildRobotsTxt, baseUrlFrom } = require('./src/sitemap');
+const { renderIndexHtml } = require('./src/pixel');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,6 +48,22 @@ app.use('/api', (req, res, next) => {
 app.use('/api', publicRoutes);
 app.use('/api/admin', adminRoutes);
 
+// Search-engine files. Registered before the static middleware and the SPA
+// catch-all so they are never swallowed by index.html. The sitemap is built
+// from the live catalogue, so product URLs stay current; SITE_URL (or the
+// request origin) provides the absolute base.
+app.get('/sitemap.xml', (req, res) => {
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(buildSitemap(baseUrlFrom(req)));
+});
+
+app.get('/robots.txt', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(buildRobotsTxt(baseUrlFrom(req)));
+});
+
 app.use(
   express.static(PUBLIC_DIR, {
     index: false,
@@ -59,10 +77,12 @@ app.use(
 app.get('/admin', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'admin.html')));
 app.get('/admin/*', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'admin.html')));
 
-// Single page storefront — every other GET renders the app shell.
+// Single page storefront — every other GET renders the app shell, with the
+// Meta Pixel snippet injected when META_PIXEL_ID is configured.
 app.get('*', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(renderIndexHtml());
 });
 
 app.use((err, req, res, next) => {

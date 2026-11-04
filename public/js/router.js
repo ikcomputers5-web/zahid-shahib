@@ -1,5 +1,6 @@
 import { homePage, shopPage, productPage, cartPage, checkoutPage, orderPage, trackPage, wishlistPage, aboutPage, contactPage, quizPage, accountPage, notFoundPage } from './pages.js';
 import { closeCart, closeModal, closeSearch, closeMobileNav, hideScrim } from './ui.js';
+import { trackPageView } from './pixel.js';
 
 const routes = [
   { pattern: /^\/$/, view: homePage, title: 'Quiet luxury, made in Pakistan' },
@@ -18,6 +19,9 @@ const routes = [
 
 let booted = false;
 let rendering = false;
+// The inline pixel snippet in index.html already fires the initial PageView,
+// so only fire again when the SPA navigates to a different path.
+let lastTrackedPath = (window.location.pathname.replace(/\/+$/, '') || '/');
 
 function cleanup() {
   if (typeof window.__ieCleanup === 'function') {
@@ -83,6 +87,11 @@ export async function renderRoute() {
         <p style="color:var(--muted);margin-top:12px">${err.message || 'Please try again.'}</p>
         <div style="margin-top:24px"><a class="btn" href="/">Back to the atelier</a></div>
       </div>`;
+  }
+
+  if (lastTrackedPath !== path) {
+    lastTrackedPath = path;
+    trackPageView();
   }
 
   rendering = false;
