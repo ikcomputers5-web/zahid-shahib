@@ -29,15 +29,17 @@
 
         <div style="display:flex;align-items:center;gap:12px;margin:10px 0 14px">
           <span style="flex:1;height:1px;background:#e3d9c9"></span>
-          <span style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#877d70">or use password</span>
+          <span style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#877d70">or use email &amp; password</span>
           <span style="flex:1;height:1px;background:#e3d9c9"></span>
         </div>
 
         <form data-login-form>
-          <label class="field-label" for="admin-password">Password</label>
+          <label class="field-label" for="admin-email">Email</label>
+          <input id="admin-email" name="email" type="email" autocomplete="username" placeholder="you@ismailelegance.pk" required />
+          <label class="field-label" for="admin-password" style="margin-top:12px">Password</label>
           <input id="admin-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required />
-          <button class="abtn abtn--block" type="submit" style="margin-top:10px">Sign in with password</button>
-          <p class="login__note" data-login-note>First time here? The demo password is <strong>ismail2026</strong> — change it under Settings once you are in.</p>
+          <button class="abtn abtn--block" type="submit" style="margin-top:10px">Sign in</button>
+          <p class="login__note" data-login-note>First time here? Use the demo email <strong>admin@ismailelegance.pk</strong> with password <strong>ismail2026</strong> — change both under Settings once you are in.</p>
         </form>
 
         <a class="login__back" href="/">← Back to the store</a>

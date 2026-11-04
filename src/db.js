@@ -101,6 +101,8 @@ function migrate(db) {
   if (!Array.isArray(db.subscribers)) db.subscribers = [];
   if (!Array.isArray(db.dropAlerts)) db.dropAlerts = [];
   if (!db.settings) db.settings = buildSeed().settings;
+  // Older databases predate email+password admin login — backfill the email.
+  if (!db.settings.adminEmail) db.settings.adminEmail = process.env.ADMIN_EMAIL || 'admin@ismailelegance.pk';
   return db;
 }
 
