@@ -748,6 +748,7 @@ function buildSeed() {
       { title: 'Fits real life', text: 'Free alterations on stitched pieces, and honest sizing advice on WhatsApp.' }
     ],
     socialLinksUpdatedAt: new Date().toISOString(),
+    adminEmail: process.env.ADMIN_EMAIL || 'admin@ismailelegance.pk',
     adminPasswordSalt: salt,
     adminPasswordHash: hash
   };

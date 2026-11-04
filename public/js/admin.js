@@ -199,7 +199,7 @@ function showLogin() {
   $('#boot').hidden = true;
   $('#shell').hidden = true;
   $('#login').hidden = false;
-  setTimeout(() => $('#admin-password')?.focus(), 80);
+  setTimeout(() => $('#admin-email')?.focus(), 80);
 }
 
 async function init() {
@@ -224,11 +224,13 @@ document.getElementById('admin-google-btn')?.addEventListener('click', handleAdm
 $('[data-login-form]')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const note = $('[data-login-note]');
-  const password = new FormData(e.target).get('password');
+  const fd = new FormData(e.target);
+  const email = String(fd.get('email') || '').trim();
+  const password = fd.get('password');
   note.className = 'login__note';
   note.textContent = 'Signing in…';
   try {
-    await api('/login', { method: 'POST', body: { password } });
+    await api('/login', { method: 'POST', body: { email, password } });
     e.target.reset();
     await showShell();
   } catch (err) {
@@ -1726,7 +1728,15 @@ async function renderSettings() {
     </div>
 
     <div class="card">
-      <h2 class="section-title">Admin password</h2>
+      <h2 class="section-title">Admin account</h2>
+      <p class="section-note">The email and password used to sign in to this panel.</p>
+      <form id="admin-email-form" style="margin-bottom:18px">
+        <div class="form-grid form-grid--3">
+          <div class="field"><label>Sign-in email</label><input name="adminEmail" type="email" autocomplete="username" value="${esc(settings.adminEmail || '')}" required /></div>
+        </div>
+        <div class="form-actions"><button class="abtn abtn--ghost" type="submit">Update email</button></div>
+      </form>
+      <h2 class="section-title" style="margin-top:22px">Admin password</h2>
       <p class="section-note">Change the demo password before sharing the panel. Use at least 6 characters.</p>
       <form id="password-form">
         <div class="form-grid form-grid--3">
@@ -1787,6 +1797,20 @@ async function renderSettings() {
         }
       });
       toast('Delivery settings saved.', 'success');
+      store.settings = null;
+      await loadSettings(true);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+
+  $('#admin-email-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const adminEmail = String(fd.get('adminEmail') || '').trim();
+    try {
+      await api('/settings', { method: 'PUT', body: { adminEmail } });
+      toast('Sign-in email updated. Use it next time you sign in.', 'success');
       store.settings = null;
       await loadSettings(true);
     } catch (err) {

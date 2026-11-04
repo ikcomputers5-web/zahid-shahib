@@ -32,6 +32,29 @@ function verifyPassword(password) {
   return candidate.length === known.length && crypto.timingSafeEqual(candidate, known);
 }
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+/** Constant-time comparison so the email check does not leak via timing. */
+function emailMatches(email) {
+  const expected = normalizeEmail(read().settings?.adminEmail);
+  if (!expected) return false;
+  const a = crypto.createHash('sha256').update(normalizeEmail(email)).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Admin sign-in with email + password. Both must match the stored
+ * admin credentials; returns a single boolean so callers can answer
+ * "incorrect email or password" without revealing which one failed.
+ */
+function verifyCredentials(email, password) {
+  if (!normalizeEmail(email) || password === undefined || password === null || password === '') return false;
+  return emailMatches(email) && verifyPassword(password);
+}
+
 function issueSession() {
   const payload = Buffer.from(JSON.stringify({ exp: Date.now() + SESSION_TTL })).toString('base64url');
   return `${payload}.${sign(payload)}`;
@@ -154,4 +177,4 @@ function noteAttempt(ip, success) {
   attempts.set(ip, record);
 }
 
-module.exports = { verifyPassword, issueSession, destroySession, sessionValid, readToken, requireAdmin, tooManyAttempts, noteAttempt, SESSION_TTL, verifyFirebaseAdmin, verifyCustomer, requireCustomer, optionalCustomer };
+module.exports = { verifyPassword, verifyCredentials, normalizeEmail, issueSession, destroySession, sessionValid, readToken, requireAdmin, tooManyAttempts, noteAttempt, SESSION_TTL, verifyFirebaseAdmin, verifyCustomer, requireCustomer, optionalCustomer };

@@ -23,8 +23,11 @@ const SETTINGS_KEYS = [
   'storeName', 'tagline', 'announcement', 'announcementActive', 'phone', 'whatsapp', 'email',
   'address', 'hours', 'instagram', 'facebook', 'tiktok', 'youtube', 'pinterest', 'currency',
   'freeShippingThreshold', 'shippingFee', 'returnWindow', 'dropTitle', 'dropSubtitle', 'dropEndsAt',
-  'dropNote', 'heroSlides', 'instagramPosts', 'aboutHeading', 'aboutText', 'aboutImage', 'values'
+  'dropNote', 'heroSlides', 'instagramPosts', 'aboutHeading', 'aboutText', 'aboutImage', 'values',
+  'adminEmail'
 ];
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ORDER_STATUSES = ['pending', 'confirmed', 'packed', 'shipped', 'delivered', 'cancelled'];
 
@@ -134,12 +137,17 @@ router.post('/login', (req, res) => {
   if (auth.tooManyAttempts(ip)) {
     return res.status(429).json({ error: 'Too many attempts. Please try again in a few minutes.' });
   }
-  const ok = auth.verifyPassword(req.body?.password);
+  const email = auth.normalizeEmail(req.body?.email);
+  const password = req.body?.password;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Enter your email and password.' });
+  }
+  const ok = auth.verifyCredentials(email, password);
   auth.noteAttempt(ip, ok);
-  if (!ok) return res.status(401).json({ error: 'Incorrect password.' });
+  if (!ok) return res.status(401).json({ error: 'Incorrect email or password.' });
   const token = auth.issueSession();
   res.setHeader('Set-Cookie', `ie_admin=${token}; HttpOnly; Path=/; Max-Age=${auth.SESSION_TTL / 1000}; SameSite=Lax`);
-  res.json({ ok: true, token });
+  res.json({ ok: true, token, email });
 });
 
 // Firebase Google login for admin
@@ -423,6 +431,11 @@ router.get('/settings', (req, res) => {
 router.put('/settings', ah(async (req, res) => {
   const db = read();
   const input = req.body || {};
+  if ('adminEmail' in input) {
+    const email = auth.normalizeEmail(input.adminEmail);
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid admin email address.' });
+    input.adminEmail = email;
+  }
   for (const key of SETTINGS_KEYS) {
     if (!(key in input)) continue;
     let value = input[key];
