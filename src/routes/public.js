@@ -13,7 +13,8 @@ const router = express.Router();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 function publicSettings(settings) {
-  const { adminPasswordHash, adminPasswordSalt, ...safe } = settings;
+  // Never expose credentials or the tag that tracks the ADMIN_PASSWORD env var.
+  const { adminPasswordHash, adminPasswordSalt, adminPasswordEnvTag, ...safe } = settings;
   return safe;
 }
 

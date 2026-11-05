@@ -1737,7 +1737,7 @@ async function renderSettings() {
         <div class="form-actions"><button class="abtn abtn--ghost" type="submit">Update email</button></div>
       </form>
       <h2 class="section-title" style="margin-top:22px">Admin password</h2>
-      <p class="section-note">Change the demo password before sharing the panel. Use at least 6 characters.</p>
+      <p class="section-note">Leave the password fields empty to keep the current one. Use at least 6 characters.</p>
       <form id="password-form">
         <div class="form-grid form-grid--3">
           <div class="field"><label>Current password</label><input name="current" type="password" autocomplete="current-password" required /></div>
@@ -1826,8 +1826,11 @@ async function renderSettings() {
       return;
     }
     try {
-      await api('/password', { method: 'POST', body: { current: fd.get('current'), next: fd.get('next') } });
-      toast('Password updated. Use it next time you sign in.', 'success');
+      const { warning } = await api('/password', {
+        method: 'POST',
+        body: { current: fd.get('current'), next: fd.get('next') }
+      });
+      toast(warning || 'Password updated. Use it next time you sign in.', warning ? 'error' : 'success');
       e.target.reset();
     } catch (err) {
       toast(err.message, 'error');

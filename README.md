@@ -27,9 +27,21 @@ npm run seed
 ### Admin
 
 - URL: **http://localhost:3000/admin**
-- Password: **`ismail2026`** — or **Continue with Google** (Firebase).
+- Sign-in: your admin **email + password**, or **Continue with Google** (Firebase).
 
-Set `ADMIN_PASSWORD` before the first boot to seed a different password, or change it inside the panel under **Settings → Password**. It is stored as a scrypt hash; sessions live for 12 hours and are throttled after repeated failed attempts.
+**The password is not in this repository and is never shown on the login screen.** Set it privately for your installation:
+
+```bash
+# first boot — set the password through the environment
+ADMIN_PASSWORD='choose-a-strong-one' ADMIN_EMAIL=you@example.com npm start
+
+# or, on an existing installation (writes only a scrypt hash to data/db.json)
+npm run admin:password -- "choose-a-strong-one"
+npm run admin:password -- --generate     # let it make and print one
+npm run admin:password -- --email you@example.com
+```
+
+If no `ADMIN_PASSWORD` is provided, a random one is generated on first boot and printed **once** in the server console. `ADMIN_PASSWORD` / `ADMIN_EMAIL` from the environment are authoritative: changing the variable applies the new credentials on the next boot (tracked with a keyed tag, so a password changed in the panel is never silently reverted unless the env var still holds a different value). Alternatively change it inside the panel under **Settings → Admin password**. It is stored as a scrypt hash; sessions live for 12 hours and are throttled after repeated failed attempts.
 
 **Google login for admins (Firebase):** The admin panel also supports **Sign in with Google** via Firebase Authentication. Configure Firebase env vars (see below) and authorized admin emails (`ADMIN_EMAILS`); then click **Continue with Google** on the admin login screen. The Firebase token is verified server-side with `firebase-admin` and exchanged for a local admin session cookie.
 
@@ -122,7 +134,7 @@ Vercel functions have a read-only deployment filesystem, and their temporary sto
 - **Without Supabase env vars** the app starts with the built-in demo catalogue in **read-only preview mode**. Browsing and promo validation work, but orders, contact forms, subscriptions, admin login/changes and uploads return a 503 instead of appearing to succeed and then losing data. The storefront displays a preview notice.
 - **With Supabase env vars** (see below) the whole JSON database is kept as a single `db.json` object in a **private** Supabase Storage bucket (`SUPABASE_DB_BUCKET`, default `store-db`), and admin sessions are stateless HMAC-signed tokens (secret: `SESSION_SECRET`, or derived from the admin password hash — so changing the password logs everyone out). Orders, contact/subscribe forms, admin login and all admin edits then work on Vercel. Uploads go to the public image bucket as described below.
 
-Two caveats in remote mode: concurrent serverless requests can race on the shared JSON (last write wins — fine for a boutique store, but use a real database if order volume grows), and the brute-force login limiter is per-instance best-effort. On a persistent Node host none of this applies — `data/db.json` is used directly and everything is writable. Always change the default admin password (`ismail2026`) before making a writable installation public.
+Two caveats in remote mode: concurrent serverless requests can race on the shared JSON (last write wins — fine for a boutique store, but use a real database if order volume grows), and the brute-force login limiter is per-instance best-effort. On a persistent Node host none of this applies — `data/db.json` is used directly and everything is writable. The admin password is not stored in this repository: set `ADMIN_PASSWORD` (and `ADMIN_EMAIL`) as environment variables on the host so every instance can sign in.
 
 ## Image storage (Supabase)
 

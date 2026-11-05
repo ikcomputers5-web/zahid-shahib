@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { buildSeed } = require('./seed');
+const crypto = require('crypto');
+const { buildSeed, newAdminCredentials, applyAdminEnvCredentials, takeGeneratedPassword } = require('./seed');
 const storage = require('./storage');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -75,6 +76,12 @@ function ensureReady({ refresh = false, throwOnError = false } = {}) {
   // Coalesce concurrent loads/refreshes into one storage request.
   if (!refreshPromise) {
     refreshPromise = loadRemote({ seedIfMissing: !everLoaded })
+      // migrate() may have just synced ADMIN_PASSWORD into this copy; store it
+      // so later instances (and later requests) see the same credentials.
+      .then(async (value) => {
+        await persistCredentialsIfChanged();
+        return value;
+      })
       .catch((err) => {
         loadError = err;
         console.error('[db] remote load failed:', err.message);
@@ -92,6 +99,8 @@ function ensureReady({ refresh = false, throwOnError = false } = {}) {
   return refreshPromise;
 }
 
+let credentialsChanged = false;
+
 function migrate(db) {
   // Ensure new collections exist on older databases
   if (!Array.isArray(db.users)) db.users = [];
@@ -103,7 +112,64 @@ function migrate(db) {
   if (!db.settings) db.settings = buildSeed().settings;
   // Older databases predate email+password admin login — backfill the email.
   if (!db.settings.adminEmail) db.settings.adminEmail = process.env.ADMIN_EMAIL || 'admin@ismailelegance.pk';
+  // A database without a password hash would let nobody sign in. Give it
+  // credentials (ADMIN_PASSWORD, else a generated password printed once).
+  if (!db.settings.adminPasswordHash || !db.settings.adminPasswordSalt) {
+    const { salt, hash } = newAdminCredentials();
+    db.settings.adminPasswordSalt = salt;
+    db.settings.adminPasswordHash = hash;
+    credentialsChanged = true;
+  }
+  // ADMIN_PASSWORD / ADMIN_EMAIL set by the operator win once per value, so a
+  // deployment can be given a known password without it living in the repo.
+  if (applyAdminEnvCredentials(db)) credentialsChanged = true;
+
+  // First boot without ADMIN_PASSWORD: announce the generated password once,
+  // but only while it is still the credential in the database.
+  const generated = takeGeneratedPassword();
+  if (generated && generatedSaltHashMatch(db.settings, generated)) {
+    console.log('[admin] No ADMIN_PASSWORD is set, so a password was generated for this installation:');
+    console.log(`[admin]   email:    ${db.settings.adminEmail}`);
+    console.log(`[admin]   password: ${generated}`);
+    console.log('[admin]   Change it with: npm run admin:password -- "<new password>"');
+  }
   return db;
+}
+
+/** True when `password` is the one behind the stored scrypt hash. */
+function generatedSaltHashMatch(settings, password) {
+  try {
+    if (!settings?.adminPasswordSalt || !settings?.adminPasswordHash) return false;
+    const candidate = crypto.scryptSync(String(password), settings.adminPasswordSalt, 64);
+    const known = Buffer.from(settings.adminPasswordHash, 'hex');
+    return candidate.length === known.length && crypto.timingSafeEqual(candidate, known);
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Persists credential changes made by migrate() (backfill or env sync) so they
+ * survive a restart. Called from server startup and on /api boot.
+ */
+function persistCredentialsIfChanged() {
+  if (!credentialsChanged) return Promise.resolve(false);
+  // Read-only preview: the demo credential is regenerated per boot anyway and
+  // nothing can sign in, so there is nothing worth persisting (or warning about).
+  if (READ_ONLY) {
+    credentialsChanged = false;
+    return Promise.resolve(false);
+  }
+  credentialsChanged = false;
+  try {
+    return Promise.resolve(save()).then(() => true, (err) => {
+      console.error('[db] could not persist admin credentials:', err.message);
+      return false;
+    });
+  } catch (err) {
+    console.error('[db] could not persist admin credentials:', err.message);
+    return Promise.resolve(false);
+  }
 }
 
 function read() {
@@ -205,6 +271,7 @@ module.exports = {
   read,
   save,
   ensureReady,
+  persistCredentialsIfChanged,
   status,
   uid,
   DB_FILE,

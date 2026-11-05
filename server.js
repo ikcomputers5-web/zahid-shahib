@@ -3,7 +3,7 @@
 try { require('dotenv').config(); } catch {}
 const express = require('express');
 const path = require('path');
-const { read, ensureReady, READ_ONLY } = require('./src/db');
+const { read, ensureReady, persistCredentialsIfChanged, READ_ONLY, REMOTE } = require('./src/db');
 const publicRoutes = require('./src/routes/public');
 const adminRoutes = require('./src/routes/admin');
 const { buildSitemap, buildRobotsTxt, baseUrlFrom } = require('./src/sitemap');
@@ -92,6 +92,10 @@ app.use((err, req, res, next) => {
 });
 
 read(); // ensure the database exists before the first request
+// ADMIN_PASSWORD / ADMIN_EMAIL (or a generated first-boot password) own the
+// admin credentials; make them durable before serving traffic. In remote mode
+// the shared database is not loaded yet — ensureReady() persists them instead.
+if (!REMOTE) persistCredentialsIfChanged().catch(() => {});
 
 module.exports = app;
 
