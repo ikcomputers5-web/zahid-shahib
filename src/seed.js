@@ -9,12 +9,91 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   return { salt, hash };
 }
 
+/* ------------------------------------------------------- admin credentials
+ *
+ * The admin password is deliberately absent from this source tree, from
+ * .env.example and from the login screen. It is resolved in this order:
+ *
+ *   1. ADMIN_PASSWORD (and ADMIN_EMAIL) — set it in your host's env/.env.
+ *   2. A one-time random password generated on first boot and printed once to
+ *      the server console, so a fresh clone never ships with a known password.
+ *
+ * `npm run admin:password -- "<new>"` changes it on an existing installation.
+ */
+
+let generatedPassword = null;
+let generatedPasswordUnannounced = false;
+
+function generatedSeedPassword() {
+  if (!generatedPassword) {
+    generatedPassword = crypto.randomBytes(9).toString('base64url');
+    generatedPasswordUnannounced = true;
+  }
+  return generatedPassword;
+}
+
+/**
+ * Hands back the generated first-boot password once, so the caller can print
+ * it — but only if it is still the password in use (an operator who set one
+ * with the CLI or env must not be shown a stale throwaway).
+ */
+function takeGeneratedPassword() {
+  if (!generatedPasswordUnannounced) return null;
+  generatedPasswordUnannounced = false;
+  return generatedPassword;
+}
+
+/**
+ * Tag identifying the ADMIN_PASSWORD value the stored hash was last synced
+ * from. Storing only a keyed hash means a changed env var is detected (and
+ * applied once) without keeping the password itself anywhere in the database.
+ */
+function adminPasswordEnvTag(password, settings = {}) {
+  const key = process.env.SESSION_SECRET || settings.adminPasswordSalt || 'ismail-elegance';
+  return crypto.createHmac('sha256', key).update(`admin-password:${password}`).digest('hex').slice(0, 20);
+}
+
+/**
+ * Makes ADMIN_PASSWORD / ADMIN_EMAIL authoritative exactly once per value.
+ * Runs on boot: if the operator sets or changes ADMIN_PASSWORD, the stored
+ * hash is replaced by that password; afterwards the tag matches and this is a
+ * no-op, so a password changed from the admin panel is never reverted.
+ *
+ * @returns {boolean} true when `db` was modified (caller should persist it)
+ */
+function applyAdminEnvCredentials(db) {
+  const password = process.env.ADMIN_PASSWORD;
+  if (!db || !db.settings || !password) return false;
+  const settings = db.settings;
+  const tag = adminPasswordEnvTag(password, settings);
+  if (settings.adminPasswordEnvTag === tag && settings.adminPasswordHash) return false;
+
+  const { salt, hash } = hashPassword(password);
+  settings.adminPasswordSalt = salt;
+  settings.adminPasswordHash = hash;
+  settings.adminPasswordEnvTag = tag;
+  const email = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (email) settings.adminEmail = email;
+  console.log('[admin] Admin sign-in credentials synced from ADMIN_PASSWORD / ADMIN_EMAIL.');
+  return true;
+}
+
 function daysAgo(n) {
   return new Date(Date.now() - n * DAY).toISOString();
 }
 
+function adminSeedPassword() {
+  return process.env.ADMIN_PASSWORD || generatedSeedPassword();
+}
+
+/** Fresh scrypt credentials for a database that has none yet. */
+function newAdminCredentials() {
+  return hashPassword(adminSeedPassword());
+}
+
 function buildSeed() {
-  const { salt, hash } = hashPassword(process.env.ADMIN_PASSWORD || 'ismail2026');
+  const password = adminSeedPassword();
+  const { salt, hash } = hashPassword(password);
 
   const categories = [
     { slug: 'new-drops', name: 'New Drops', blurb: 'Fresh off the atelier floor', image: '/images/products/bridal-sahar.jpg', order: 0 },
@@ -748,9 +827,10 @@ function buildSeed() {
       { title: 'Fits real life', text: 'Free alterations on stitched pieces, and honest sizing advice on WhatsApp.' }
     ],
     socialLinksUpdatedAt: new Date().toISOString(),
-    adminEmail: process.env.ADMIN_EMAIL || 'admin@ismailelegance.pk',
+    adminEmail: (process.env.ADMIN_EMAIL || 'admin@ismailelegance.pk').trim().toLowerCase(),
     adminPasswordSalt: salt,
-    adminPasswordHash: hash
+    adminPasswordHash: hash,
+    adminPasswordEnvTag: process.env.ADMIN_PASSWORD ? adminPasswordEnvTag(password, { adminPasswordSalt: salt }) : null
   };
 
   return {
@@ -778,4 +858,4 @@ if (require.main === module) {
   console.log('Seeded data/db.json');
 }
 
-module.exports = { buildSeed, hashPassword };
+module.exports = { buildSeed, hashPassword, newAdminCredentials, applyAdminEnvCredentials, adminPasswordEnvTag, takeGeneratedPassword };

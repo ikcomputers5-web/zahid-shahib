@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { read, save, uid } = require('../db');
-const { hashPassword } = require('../seed');
+const { hashPassword, adminPasswordEnvTag } = require('../seed');
 const auth = require('../auth');
 const storage = require('../storage');
 const firebase = require('../firebase');
@@ -424,7 +424,7 @@ router.delete('/orders/:id', ah(async (req, res) => {
 
 router.get('/settings', (req, res) => {
   const db = read();
-  const { adminPasswordHash, adminPasswordSalt, ...settings } = db.settings;
+  const { adminPasswordHash, adminPasswordSalt, adminPasswordEnvTag, ...settings } = db.settings;
   res.json({ settings });
 });
 
@@ -463,7 +463,7 @@ router.put('/settings', ah(async (req, res) => {
     db.settings[key] = value;
   }
   await save();
-  const { adminPasswordHash, adminPasswordSalt, ...safe } = db.settings;
+  const { adminPasswordHash, adminPasswordSalt, adminPasswordEnvTag, ...safe } = db.settings;
   res.json({ settings: safe, message: 'Settings saved.' });
 }));
 
@@ -475,6 +475,21 @@ router.post('/password', ah(async (req, res) => {
   const { salt, hash } = hashPassword(next);
   db.settings.adminPasswordSalt = salt;
   db.settings.adminPasswordHash = hash;
+  // Record which ADMIN_PASSWORD value this hash came from. If the deployment
+  // still sets ADMIN_PASSWORD to some other value, that env password is
+  // authoritative and would replace this one on the next boot — warn instead
+  // of letting the change silently disappear.
+  if (process.env.ADMIN_PASSWORD) {
+    db.settings.adminPasswordEnvTag = adminPasswordEnvTag(process.env.ADMIN_PASSWORD, db.settings);
+    if (process.env.ADMIN_PASSWORD !== String(next) && !process.env.SESSION_SECRET) {
+      await save();
+      return res.json({
+        message: 'Password updated.',
+        warning:
+          'ADMIN_PASSWORD is still set on this deployment and takes priority, so this change may be reverted on the next restart. Remove or update that variable to keep the new password.'
+      });
+    }
+  }
   await save();
   res.json({ message: 'Password updated.' });
 }));
