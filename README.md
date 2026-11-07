@@ -1,10 +1,10 @@
 # Ismail Elegance
 
-A complete storefront + admin panel for **Ismail Elegance**, a Lahore atelier selling lawn, luxury pret, formals and bridal. Built as a single Node/Express app with a hand-written design system — no framework, no build step.
+A complete storefront + admin panel for **Ismail Elegance**, a Lahore atelier specialising in **2 Piece Suits** and **3 Piece Suits**. Built as a single Node/Express app with a hand-written design system — no framework, no build step.
 
 ```
 Ismail Elegance
-├── storefront   /            hero slider, new drops, categories, trending, quiz, wishlist…
+├── storefront   /            hero slider, two suit categories, new arrivals, trending, quiz, wishlist…
 ├── checkout     /checkout    promo codes, delivery threshold, order numbers
 └── admin        /admin       products, orders, promos, storefront content, contact & socials
 ```
@@ -95,8 +95,8 @@ Restart the server (`npm run dev`). The storefront header will show **Sign in** 
 ## What's in the storefront
 
 - **Hero slider** with three campaign slides, drop countdown and trust strip.
-- **New drops** rail driven by the `isDrop` flag, with badges and compare-at pricing.
-- **The house edit** category mosaic, **trending** tabbed rail, editorial story block, Instagram strip, customer notes, newsletter and quiz panels.
+- **New Arrivals** at `/new-arrivals`: owner-curated pieces sorted newest first, with 2/3-piece filters, price sorting and an arrival-date label. The homepage previews the latest four. This is an edit, not a third category.
+- **The suit edit** mosaic with only **2 Piece Suits** (shirt + trouser) and **3 Piece Suits** (shirt + trouser + dupatta), a **trending** tabbed rail, editorial story block, Instagram strip, customer notes, newsletter and quiz panels.
 - **Shop** with category / collection / price / size filters, sorting, search overlay (`/` shortcut) and recently viewed.
 - **Product page** with gallery, colour and size selection, stock status, size guide, delivery estimate, reviews and related pieces.
 - **Cart drawer + cart page** with quantity edits, free-delivery meter, promo code, save-for-later and a copyable code.
@@ -104,6 +104,12 @@ Restart the server (`npm run dev`). The storefront header will show **Sign in** 
 - **Order tracking** by order number + phone (`/track`).
 - **Wishlist**, **style quiz** (three questions → a personalised edit), **journal-style about page**, **contact page** and a 404.
 - Promo codes, WhatsApp deep links, newsletter and contact forms, and a fully responsive layout from 390 px up.
+
+### Catalogue migration
+
+On the first boot after this update, existing suits are assigned to the two new categories using their recorded piece count. Old category links redirect to the matching suit category (or the full collection where the count is ambiguous). Accessories and other non-suit stock are **not deleted**: they remain in Admin → Products → **Needs category**, hidden from the storefront until the owner assigns a suit category or deletes them. Prices, stock, photos, orders, subscribers and admin credentials are preserved. The migration runs once and is persisted, including on Supabase-backed deployments.
+
+In the product editor, category and piece count stay in sync. **Include in New Arrivals** controls the New Arrivals edit and the “New in” badge; newly created and duplicated products are included by default.
 
 ## What the owner can change in the admin
 
@@ -161,7 +167,8 @@ With these set, the Vercel deployment is fully writable (orders, admin, uploads)
 server.js              Express app, static files, SPA fallback, error handler
 src/
   db.js                JSON store: local file, or Supabase bucket on serverless hosts
-  seed.js              Categories, 22 products, 4 promo codes, settings, copy
+  seed.js              Two suit categories, 18 demo suits, 4 promo codes, settings, copy
+  catalog.js           Suit category definitions, legacy URL mapping, safe catalogue migration
   auth.js              scrypt password hashing, 12-hour stateless signed sessions + Firebase guards
   firebase.js          Firebase Admin: token verification, client config, env helpers
   storage.js           Supabase Storage client: image uploads + remote db.json
@@ -173,6 +180,7 @@ public/
   admin.html           Admin shell
   css/styles.css       Storefront design system
   css/admin.css        Admin design system
+  js/catalog.js        Storefront suit categories and newest-first arrivals helper
   js/api.js            fetch wrapper (attaches Firebase ID token)
   js/state.js          Cart, wishlist, promo, recently viewed, user (localStorage)
   js/firebase.js       Firebase client: Google popup, token, user sync

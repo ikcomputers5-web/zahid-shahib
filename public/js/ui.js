@@ -1,6 +1,7 @@
 import { state, money, cartTotals, cartDetails, addToCart, toggleWishlist, isWished } from './state.js';
 import { api } from './api.js';
 import { navigate } from './nav.js';
+import { shopCategories, categoryName, newArrivals } from './catalog.js';
 
 /* ------------------------------------------------------------------ icons */
 
@@ -104,10 +105,11 @@ export async function copyText(text, label = 'Copied to clipboard') {
 /* ------------------------------------------------------------------ chrome */
 
 function navItems() {
-  const cats = state.categories.filter((c) => c.slug !== 'new-drops');
+  const cats = shopCategories(state.categories);
   return [
-    { label: 'New Drops', href: '/shop?drop=1', dot: true },
-    ...cats.map((c) => ({ label: c.name.replace(' & Summer', ''), href: `/shop?category=${c.slug}` }))
+    { label: 'New Arrivals', href: '/new-arrivals', dot: true },
+    ...cats.map((c) => ({ label: c.name, href: `/shop?category=${c.slug}` })),
+    { label: 'All suits', href: '/shop' }
   ];
 }
 
@@ -239,20 +241,21 @@ export function renderFooter() {
   const s = state.settings;
   const el = document.getElementById('site-footer');
   if (!el || !s) return;
-  const cats = state.categories.filter((c) => c.slug !== 'new-drops');
+  const cats = shopCategories(state.categories);
   el.innerHTML = `
     <div class="container">
       <div class="footer__grid">
         <div>
           <span class="logo__name">${escapeHtml(s.storeName)}</span>
-          <p class="footer__blurb">${escapeHtml(s.tagline)}. Hand-embroidered lawn, luxe pret, formals and bridal — made in small runs in Lahore.</p>
+          <p class="footer__blurb">${escapeHtml(s.tagline)}. Hand-finished 2 and 3 piece suits — thoughtfully paired and made in small runs in Lahore.</p>
           <div class="socials">${socialList()}</div>
         </div>
         <div class="footer__col">
           <h3>Shop</h3>
           <ul>
             ${cats.map((c) => `<li><a href="/shop?category=${c.slug}">${escapeHtml(c.name)}</a></li>`).join('')}
-            <li><a href="/shop?drop=1">The Festive Drop</a></li>
+            <li><a href="/new-arrivals">New Arrivals</a></li>
+            <li><a href="/shop">All suits</a></li>
           </ul>
         </div>
         <div class="footer__col">
@@ -354,8 +357,8 @@ export function renderCartDrawer() {
         <div class="drawer__empty">
           ${icon('bag')}
           <h3 style="font-size:24px">Your bag is empty</h3>
-          <p>Discover the festive drop — hand-embellished pieces in limited numbers.</p>
-          <a class="btn btn--sm" href="/shop?drop=1">Shop the drop</a>
+          <p>Discover the latest suits — hand-finished pieces in limited numbers.</p>
+          <a class="btn btn--sm" href="/new-arrivals">Shop new arrivals</a>
         </div>
       </div>`;
     return;
@@ -444,8 +447,8 @@ export function openSearch() {
       <div class="search-panel__body">
         <div class="search-suggest">
           <span>Try</span>
-          ${['Bridal', 'Lawn', 'Emerald', 'Jhumka', 'Chiffon', 'Unstitched']
-            .map((term) => `<button class="chip" type="button" data-search-term="${term}">${term}</button>`)
+          ${['2 piece', '3 piece', 'Silk', 'Cotton', 'Embroidered', 'Unstitched']
+            .map((term) => `<button class="chip" type="button" data-search-term="${term}">${escapeHtml(term)}</button>`)
             .join('')}
         </div>
         <div class="search-results" data-search-results></div>
@@ -469,7 +472,7 @@ export function openSearch() {
       const { products } = await api.products(`?q=${encodeURIComponent(term)}&max=8`);
       results.innerHTML = products.length
         ? products.map((p) => productCard(p)).join('')
-        : `<p class="search-results__empty">No pieces match “${escapeHtml(term)}”. Try “lawn”, “bridal” or “dupatta”.</p>`;
+        : `<p class="search-results__empty">No pieces match “${escapeHtml(term)}”. Try “2 piece”, “3 piece” or a fabric like “silk”.</p>`;
       refreshCounts();
     } catch (_) {
       results.innerHTML = `<p class="search-results__empty">Search is unavailable right now.</p>`;
@@ -616,14 +619,14 @@ export function quickView(product) {
 
 /* ---------------------------------------------------------- product card */
 
-export function productCard(product, { compact = false } = {}) {
+export function productCard(product, { compact = false, arrival = false } = {}) {
   if (!product) return '';
   const soldOut = (product.stock || 0) <= 0;
   const sale = product.compareAt && product.compareAt > product.price;
   const badges = [];
   if (soldOut) badges.push('<span class="badge badge--sold">Sold out</span>');
+  if (product.isNew && !soldOut) badges.push('<span class="badge">New in</span>');
   if (product.isDrop && !soldOut) badges.push('<span class="badge badge--drop">Drop</span>');
-  else if (product.isNew && !soldOut) badges.push('<span class="badge">New in</span>');
   if (sale && !soldOut) badges.push('<span class="badge badge--sale">Sale</span>');
 
   return `
@@ -648,9 +651,11 @@ export function productCard(product, { compact = false } = {}) {
         }
       </div>
       <div class="product-card__body">
+        ${arrival ? `<span class="product-card__arrival">Added ${formatDate(product.createdAt, { day: 'numeric', month: 'short', year: 'numeric' })}</span>` : ''}
         <span class="product-card__collection">${escapeHtml(product.collection)}</span>
         <h3 class="product-card__name"><a href="/product/${product.slug}">${escapeHtml(product.name)}</a></h3>
         ${compact ? '' : `<p class="product-card__sub">${escapeHtml(product.subtitle)}</p>`}
+        <span class="product-card__type">${escapeHtml(categoryName(product.category).replace(/s$/, ''))}${/unstitched/i.test(product.pieces || '') ? ' · Unstitched' : ''}</span>
         <div class="product-card__price">
           <span>${price(product.price)}</span>
           ${sale ? `<span class="was">${price(product.compareAt)}</span>` : ''}

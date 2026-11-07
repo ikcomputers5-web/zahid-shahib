@@ -6,6 +6,7 @@ const { evaluatePromo, totalsFor, priceItems } = require('../commerce');
 const auth = require('../auth');
 const firebase = require('../firebase');
 const storage = require('../storage');
+const { SUIT_CATEGORIES, suitCategory, categoryName, isPublishedProduct } = require('../catalog');
 
 const router = express.Router();
 
@@ -66,8 +67,8 @@ router.get('/bootstrap', ah(async (req, res) => {
   res.json({
     readOnly: READ_ONLY,
     settings: publicSettings(db.settings),
-    categories: [...db.categories].sort((a, b) => a.order - b.order),
-    products: db.products.map(publicProduct),
+    categories: SUIT_CATEGORIES.map((category) => ({ ...category })),
+    products: db.products.filter(isPublishedProduct).map(publicProduct),
     activePromos: db.promoCodes
       .filter((p) => p.active && (!p.expiresAt || new Date(p.expiresAt) > new Date()))
       .map((p) => ({ code: p.code, description: p.description, type: p.type, value: p.value, minOrder: p.minOrder })),
@@ -144,17 +145,20 @@ router.get('/my/orders', ah(async (req, res) => {
 
 router.get('/products', (req, res) => {
   const db = read();
-  const { category, collection, q, sort = 'featured', drop, new: isNew, max } = req.query;
-  let list = [...db.products];
+  const { category, collection, q, sort = req.query.new === '1' ? 'newest' : 'featured', drop, new: isNew, max } = req.query;
+  let list = db.products.filter(isPublishedProduct);
 
-  if (category && category !== 'all') list = list.filter((p) => p.category === category);
+  if (category && category !== 'all') {
+    const slug = suitCategory(category);
+    list = slug ? list.filter((p) => p.category === slug) : [];
+  }
   if (collection) list = list.filter((p) => p.collection === collection);
   if (drop === '1') list = list.filter((p) => p.isDrop);
   if (isNew === '1') list = list.filter((p) => p.isNew);
   if (q) {
     const needle = String(q).toLowerCase().trim();
     list = list.filter((p) =>
-      [p.name, p.subtitle, p.collection, p.category, p.fabric, (p.tags || []).join(' ')]
+      [p.name, p.subtitle, p.collection, categoryName(p.category), p.pieces, p.fabric, (p.tags || []).join(' ')]
         .join(' ')
         .toLowerCase()
         .includes(needle)
@@ -176,10 +180,10 @@ router.get('/products', (req, res) => {
 
 router.get('/products/:slug', (req, res) => {
   const db = read();
-  const product = db.products.find((p) => p.slug === req.params.slug);
+  const product = db.products.find((p) => p.slug === req.params.slug && isPublishedProduct(p));
   if (!product) return res.status(404).json({ error: 'We could not find that piece.' });
   const related = db.products
-    .filter((p) => p.id !== product.id && (p.category === product.category || p.collection === product.collection))
+    .filter((p) => isPublishedProduct(p) && p.id !== product.id && (p.category === product.category || p.collection === product.collection))
     .slice(0, 4);
   res.json({ product, related });
 });

@@ -2,7 +2,7 @@
   "name": "ismail-elegance",
   "version": "1.0.0",
   "private": true,
-  "description": "Ismail Elegance — luxury Pakistani pret, formals & bridal. Storefront + admin panel.",
+  "description": "Ismail Elegance — luxury Pakistani 2 and 3 piece suits. Storefront + admin panel.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

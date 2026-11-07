@@ -10,6 +10,7 @@ const auth = require('../auth');
 const storage = require('../storage');
 const firebase = require('../firebase');
 const { toNumber } = require('../numbers');
+const { suitCategory } = require('../catalog');
 
 const router = express.Router();
 
@@ -76,10 +77,15 @@ function normalizeProduct(input, products, existing) {
     .map((s) => String(s).trim())
     .filter(Boolean);
 
+  const category = suitCategory(input.category ?? existing?.category);
+  if (!category) throw new Error('Choose either 2 Piece Suits or 3 Piece Suits.');
+  const requestedPieces = String(input.pieces ?? existing?.pieces ?? '');
+  const pieces = `${category.charAt(0)} Piece${/unstitched/i.test(requestedPieces) ? ' Unstitched' : ''}`;
+
   const base = {
     name,
     subtitle: String(input.subtitle || existing?.subtitle || '').trim(),
-    category: String(input.category || existing?.category || 'pret'),
+    category,
     collection: String(input.collection || existing?.collection || 'Ismail Elegance').trim(),
     price,
     compareAt: compareAtRaw && compareAtRaw > price ? compareAtRaw : null,
@@ -87,7 +93,7 @@ function normalizeProduct(input, products, existing) {
     sizes: sizes.length ? sizes : ['S', 'M', 'L'],
     colors,
     fabric: String(input.fabric || existing?.fabric || '').trim(),
-    pieces: String(input.pieces || existing?.pieces || '').trim(),
+    pieces,
     description: String(input.description || existing?.description || '').trim(),
     details,
     care,
@@ -101,7 +107,8 @@ function normalizeProduct(input, products, existing) {
     reviews: existing?.reviews || [],
     rating: existing?.rating || 5,
     reviewCount: existing?.reviewCount || 0,
-    sold: existing?.sold || 0
+    sold: existing?.sold || 0,
+    needsCategory: false
   };
 
   return {

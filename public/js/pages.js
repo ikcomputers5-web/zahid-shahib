@@ -1,5 +1,6 @@
 import { state, money, cartDetails, cartTotals, addToCart, updateCartQty, removeFromCart, toggleWishlist, isWished, setPromo, clearPromo, revalidatePromo, pushRecent, discountPercent, setUser } from './state.js';
 import { api } from './api.js';
+import { SUIT_CATEGORIES, suitCategory, categoryName, shopCategories, newArrivals } from './catalog.js';
 import { getCurrentUser, signInWithGoogle, getIdToken, isFirebaseEnabled } from './firebase.js';
 import { navigate, queryParams, setQuery } from './nav.js';
 import {
@@ -95,13 +96,11 @@ function shipMeter(t) {
 
 export async function homePage() {
   const s = state.settings;
-  const drops = state.products.filter((p) => p.isDrop).slice(0, 4);
-  const fillers = state.products.filter((p) => !p.isDrop).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  const dropRail = [...drops, ...fillers].slice(0, 4);
-  const cat = (slug) => state.categories.find((c) => c.slug === slug);
+  const arrivals = newArrivals(state.products).slice(0, 4);
+  const categories = shopCategories(state.categories);
   const heroSlides = s.heroSlides?.length
     ? s.heroSlides
-    : [{ image: '/images/products/bridal-meher.jpg', kicker: 'Festive 26', title: 'Heirlooms, re-imagined', subtitle: '', ctaLabel: 'Shop', ctaHref: '/shop' }];
+    : [{ image: '/images/products/lawn-rania.jpg', kicker: 'The suit edit', title: 'Two pieces.\nOr three.', subtitle: 'Thoughtfully paired suits, hand-finished in Lahore.', ctaLabel: 'Shop suits', ctaHref: '/shop' }];
 
   // The gift card reflects whichever code the owner has live in /admin, so the
   // homepage never advertises a promo that no longer exists.
@@ -114,18 +113,12 @@ export async function homePage() {
     return handle ? '@' + handle : '@' + String(s.storeName || 'the atelier').toLowerCase().replace(/[^a-z0-9]/g, '');
   })();
 
-  const tiles = [
-    { c: cat('bridal'), cls: 'cat-tile--hero' },
-    { c: cat('formals'), cls: 'cat-tile--side' },
-    { c: cat('lawn'), cls: 'cat-tile--third' },
-    { c: cat('pret'), cls: 'cat-tile--third' },
-    { c: cat('accessories'), cls: 'cat-tile--third' }
-  ].filter((t) => t.c);
+  const tiles = categories.map((c) => ({ c, cls: 'cat-tile--half' }));
 
   const testimonials = [
     { text: 'The Noor Jahan arrived in a muslin bag with a hand-written note. I have never felt so looked after by an online store.', name: 'Ayesha K.', city: 'Lahore' },
-    { text: 'Ordered lawn on Tuesday, stitched and delivered by Friday. The dupatta is heavier than pieces I have paid double for.', name: 'Nimra J.', city: 'Karachi' },
-    { text: 'They talked me through sizing on WhatsApp at 9pm before a wedding. The formal fit like it was made for me — because it was.', name: 'Sana T.', city: 'Islamabad' }
+    { text: 'Ordered a three-piece suit on Tuesday, stitched and delivered by Friday. The dupatta is heavier than pieces I have paid double for.', name: 'Nimra J.', city: 'Karachi' },
+    { text: 'They talked me through sizing on WhatsApp at 9pm before a wedding. The suit fit like it was made for me — because it was.', name: 'Sana T.', city: 'Islamabad' }
   ];
 
   app().innerHTML = `
@@ -172,20 +165,21 @@ export async function homePage() {
     <section class="section">
       <div class="container">
         ${sectionHead({
-          eyebrow: 'New this week',
-          title: escapeHtml(s.dropTitle || 'The festive drop'),
-          desc: s.dropNote || 'Hand-embellished pieces in limited numbers — once they are gone, they are gone.',
-          link: '/shop?drop=1',
-          linkLabel: 'All new drops'
+          eyebrow: 'Fresh from the atelier',
+          title: 'New arrivals',
+          desc: 'The latest two- and three-piece suits, just added to the collection.',
+          link: '/new-arrivals',
+          linkLabel: 'Shop new arrivals'
         })}
-        <div class="rail reveal">${dropRail.map((p) => productCard(p)).join('')}</div>
+        ${arrivals.length ? `<div class="rail reveal">${arrivals.map((p) => productCard(p, { arrival: true })).join('')}</div>`
+          : emptyState({ title: 'Something lovely is on its way', text: 'Our next edit is being finished in the atelier. Check back soon.', action: 'Browse the collection', href: '/shop' })}
       </div>
     </section>
 
     <section class="section section--tight">
       <div class="container">
-        ${sectionHead({ eyebrow: 'Shop by category', title: 'The house edit', link: '/shop', linkLabel: 'All pieces' })}
-        <div class="cat-grid reveal">
+        ${sectionHead({ eyebrow: 'Two ways to wear it', title: 'The suit edit', desc: 'Choose your pieces. We will take care of the pairing.', link: '/shop', linkLabel: 'All suits' })}
+        <div class="cat-grid cat-grid--suits reveal">
           ${tiles
             .map(
               (t, i) => `
@@ -195,6 +189,7 @@ export async function homePage() {
                 <div>
                   <div class="cat-tile__name">${escapeHtml(t.c.name)}</div>
                   <div class="cat-tile__blurb">${escapeHtml(t.c.blurb)}</div>
+                  <div class="cat-tile__count">${state.products.filter((p) => p.category === t.c.slug).length} suits to discover</div>
                 </div>
                 <span class="cat-tile__arrow">${icon('arrowRight')}</span>
               </div>
@@ -210,11 +205,8 @@ export async function homePage() {
         ${sectionHead({ eyebrow: 'Most loved', title: 'Trending in the atelier', link: '/shop', linkLabel: 'Shop everything' })}
         <div class="tabs" role="tablist">
           ${[
-            ['new', 'New arrivals'],
-            ['pret', 'Luxe pret'],
-            ['bridal', 'Bridal'],
-            ['formals', 'Formals'],
-            ['accessories', 'Accessories']
+            ['all', 'All suits'],
+            ...SUIT_CATEGORIES.map((c) => [c.slug, c.name])
           ]
             .map(
               ([key, label], i) =>
@@ -307,7 +299,7 @@ export async function homePage() {
       </div>
     </section>
 
-    <section class="newsletter">
+    <section class="newsletter" id="newsletter">
       <div class="container">
         <div class="newsletter__inner reveal">
           <span class="eyebrow" style="justify-content:center">The list</span>
@@ -363,19 +355,17 @@ export async function homePage() {
 
   /* trending tabs */
   const trendGrid = app().querySelector('#trend-grid');
+  const mostLoved = [...state.products].sort((a, b) => (b.sold || 0) - (a.sold || 0) || (b.rating || 0) - (a.rating || 0));
   const groups = {
-    new: state.products.filter((p) => p.isNew),
-    pret: state.products.filter((p) => p.category === 'pret'),
-    bridal: state.products.filter((p) => p.category === 'bridal'),
-    formals: state.products.filter((p) => p.category === 'formals'),
-    accessories: state.products.filter((p) => p.category === 'accessories')
+    all: mostLoved,
+    ...Object.fromEntries(SUIT_CATEGORIES.map((c) => [c.slug, mostLoved.filter((p) => p.category === c.slug)]))
   };
   const paintTrend = (key) => {
     const list = (groups[key] || []).slice(0, 4);
-    trendGrid.innerHTML = list.map((p) => productCard(p)).join('');
+    trendGrid.innerHTML = list.length ? list.map((p) => productCard(p)).join('') : '<p class="section-desc">New pieces are coming soon.</p>';
     refreshCounts();
   };
-  paintTrend('new');
+  paintTrend('all');
   app().querySelectorAll('[data-trend-tab]').forEach((tab) => {
     tab.addEventListener('click', () => {
       app().querySelectorAll('[data-trend-tab]').forEach((t) => {
@@ -386,23 +376,93 @@ export async function homePage() {
     });
   });
 
-  /* newsletter */
-  const form = app().querySelector('[data-newsletter]');
+  bindNewsletter(app());
+
+  setupReveal(app());
+}
+
+
+function bindNewsletter(root) {
+  const form = root.querySelector('[data-newsletter]');
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const note = app().querySelector('[data-newsletter-note]');
-    const email = new FormData(form).get('email');
+    const note = root.querySelector('[data-newsletter-note]');
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
     try {
-      const res = await api.subscribe(email, 'homepage');
+      const res = await api.subscribe(new FormData(form).get('email'), root.dataset.newsletterSource || 'homepage');
       note.textContent = res.message;
       note.className = 'form-note is-success';
       form.reset();
     } catch (err) {
       note.textContent = err.message;
       note.className = 'form-note is-error';
+    } finally {
+      button.disabled = false;
     }
   });
+}
 
+/* A dedicated, newest-first edit — not an additional product category. */
+export function newArrivalsPage() {
+  const all = newArrivals(state.products);
+  let category = suitCategory(queryParams().get('category'));
+  let sort = queryParams().get('sort') || 'newest';
+  const sorts = {
+    newest: (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+    'price-asc': (a, b) => a.price - b.price,
+    'price-desc': (a, b) => b.price - a.price
+  };
+  if (!sorts[sort]) sort = 'newest';
+  app().innerHTML = `
+    ${pageHead({ crumbs: [{ label: 'New arrivals' }], title: 'New arrivals', count: all.length, desc: 'Fresh from the atelier. Discover our latest two- and three-piece suits, with the newest additions first.' })}
+    <section class="section section--tight">
+      <div class="container">
+        <div class="arrivals-toolbar">
+          <div class="tabs" role="group" aria-label="Filter new arrivals by suit type">
+            ${[['', 'All new suits'], ...SUIT_CATEGORIES.map((c) => [c.slug, c.name])].map(([slug, label]) => `<button class="tab ${category === slug ? 'is-active' : ''}" type="button" data-arrival-category="${slug}" aria-pressed="${category === slug}">${label}</button>`).join('')}
+          </div>
+          <div class="select-wrap">
+            <select data-arrival-sort aria-label="Sort new arrivals">
+              <option value="newest">Newest first</option>
+              <option value="price-asc">Price: low to high</option>
+              <option value="price-desc">Price: high to low</option>
+            </select>${icon('chevronDown')}
+          </div>
+        </div>
+        <p class="arrivals-count" data-arrival-count role="status" aria-live="polite"></p>
+        <div class="product-grid" data-arrival-grid></div>
+        <div class="arrivals-notify" data-newsletter-source="new-arrivals">
+          <div><span class="eyebrow">A note from the atelier</span><h2>Be first to see what is next.</h2><p>Join the list for new arrivals and occasional early-access codes.</p></div>
+          <div><form class="field-inline" data-newsletter><input type="email" name="email" placeholder="Your email address" aria-label="Email address for new arrivals" required /><button class="btn btn--sm" type="submit">Keep me in the loop</button></form><p class="form-note" data-newsletter-note>Occasional emails only. Unsubscribe any time.</p></div>
+        </div>
+      </div>
+    </section>`;
+  const grid = app().querySelector('[data-arrival-grid]');
+  const sortEl = app().querySelector('[data-arrival-sort]');
+  sortEl.value = sort;
+  const paint = () => {
+    const list = all.filter((p) => !category || p.category === category).sort(sorts[sort]);
+    app().querySelector('[data-arrival-count]').textContent = `${list.length} new ${list.length === 1 ? 'suit' : 'suits'}`;
+    grid.innerHTML = list.length ? list.map((p) => productCard(p, { arrival: true })).join('')
+      : emptyState({ title: 'The next edit is on its way', text: 'There are no new suits in this edit just yet. Explore the full collection in the meantime.', action: 'Shop all suits', href: '/shop' });
+    const params = {};
+    if (category) params.category = category;
+    if (sort !== 'newest') params.sort = sort;
+    setQuery(params);
+    refreshCounts();
+  };
+  app().querySelectorAll('[data-arrival-category]').forEach((button) => button.addEventListener('click', () => {
+    category = button.dataset.arrivalCategory;
+    app().querySelectorAll('[data-arrival-category]').forEach((b) => {
+      b.classList.toggle('is-active', b === button);
+      b.setAttribute('aria-pressed', String(b === button));
+    });
+    paint();
+  }));
+  sortEl.addEventListener('change', () => { sort = sortEl.value; paint(); });
+  bindNewsletter(app().querySelector('.arrivals-notify'));
+  paint();
   setupReveal(app());
 }
 
@@ -422,7 +482,7 @@ const filterState = {
 
 export function shopPage() {
   const params = queryParams();
-  const category = params.get('category');
+  const category = suitCategory(params.get('category'));
   const collection = params.get('collection');
 
   filterState.categories = new Set(category ? [category] : []);
@@ -447,11 +507,11 @@ export function shopPage() {
     ? state.settings.dropNote
     : catObj
       ? catObj.blurb
-      : 'Hand-finished lawn, luxe pret, formals, bridal and accessories — made in small runs in Lahore.';
+      : 'Hand-finished 2 and 3 piece suits — thoughtfully paired and made in small runs in Lahore.';
 
   const collections = [...new Set(state.products.map((p) => p.collection))];
   const allSizes = [...new Set(state.products.flatMap((p) => p.sizes))].filter((s) => s !== 'Unstitched' && s !== 'One Size');
-  const cats = state.categories.filter((c) => c.slug !== 'new-drops');
+  const cats = shopCategories(state.categories);
 
   app().innerHTML = `
     ${pageHead({ crumbs: [{ label: 'Shop' }], title, desc })}
@@ -573,7 +633,7 @@ export function shopPage() {
     if (filterState.q) {
       const needle = filterState.q.toLowerCase();
       list = list.filter((p) =>
-        [p.name, p.subtitle, p.collection, p.category, p.fabric, (p.tags || []).join(' ')].join(' ').toLowerCase().includes(needle)
+        [p.name, p.subtitle, p.collection, categoryName(p.category), p.pieces, p.fabric, (p.tags || []).join(' ')].join(' ').toLowerCase().includes(needle)
       );
     }
     const sorters = {
@@ -798,7 +858,7 @@ export async function productPage({ slug }) {
     ${pageHead({
       crumbs: [
         { label: 'Shop', href: '/shop' },
-        { label: state.categories.find((c) => c.slug === product.category)?.name || product.category, href: `/shop?category=${product.category}` },
+        { label: categoryName(product.category), href: `/shop?category=${product.category}` },
         { label: product.name }
       ],
       title: ''
@@ -929,7 +989,7 @@ export async function productPage({ slug }) {
     ${
       related.length
         ? `<section class="section section--tight"><div class="container">
-            ${sectionHead({ eyebrow: 'Complete the look', title: 'You may also love', link: `/shop?category=${product.category}`, linkLabel: 'Shop ' + product.category })}
+            ${sectionHead({ eyebrow: 'Complete the look', title: 'You may also love', link: `/shop?category=${product.category}`, linkLabel: 'Shop ' + categoryName(product.category) })}
             <div class="product-grid product-grid--related reveal">${related.map((p) => productCard(p)).join('')}</div>
           </div></section>`
         : ''
@@ -1086,7 +1146,7 @@ function cartMarkup() {
             ${summaryTotals(t, promo)}
             <a class="btn btn--block" href="/checkout" style="margin-top:4px">Checkout securely</a>
             <p class="secure-note">${icon('lock')} Cash on delivery · Bank transfer · Card on delivery</p>
-            <p class="summary__note">Taxes included. Free alterations on stitched pieces. Unstitched fabric and jewellery are exchange only.</p>
+            <p class="summary__note">Taxes included. Free alterations on stitched pieces. Unstitched fabric is exchange only.</p>
           </aside>
         </div>
       </div>
@@ -1709,7 +1769,7 @@ export function aboutPage() {
           <div class="editorial__body">
             <span class="eyebrow">Come and see</span>
             <h2 class="editorial__title">The kettle is always on.</h2>
-            <p class="editorial__text">Our salon on MM Alam Road carries the full collection, plus one-off pieces that never make it online. Come in for a fitting; we will help you choose the dupatta, the jewellery and the alterations.</p>
+            <p class="editorial__text">Our salon on MM Alam Road carries the full collection, plus one-off pieces that never make it online. Come in for a fitting; we will help you choose your two- or three-piece suit, the fabric and the alterations.</p>
             <p class="editorial__text" style="margin-top:14px">${escapeHtml(s.address)}<br />${escapeHtml(s.hours)}</p>
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:26px">
               <a class="btn" href="/contact">Plan a visit</a>
@@ -1814,59 +1874,44 @@ const QUIZ = [
     question: 'What are we dressing for?',
     hint: 'Pick the closest occasion — we will do the rest.',
     options: [
-      { key: 'wedding', label: 'A wedding', text: 'Mehndi, baraat, valima', marks: { bridal: 2, formals: 2 } },
-      { key: 'festive', label: 'A festive evening', text: 'Eid, dinners, mehfil', marks: { formals: 2, pret: 1 } },
-      { key: 'everyday', label: 'Everyday', text: 'Work, lunch, school run', marks: { pret: 2, lawn: 2 } },
-      { key: 'summer', label: 'Summer days', text: 'Something light and easy', marks: { lawn: 2, unstitched: 1 } }
+      { key: 'wedding', label: 'A wedding', text: 'Mehndi, baraat, valima', marks: { '3-piece-suits': 2 } },
+      { key: 'festive', label: 'A festive evening', text: 'Eid, dinners, mehfil', marks: { '3-piece-suits': 2, '2-piece-suits': 1 } },
+      { key: 'everyday', label: 'Everyday', text: 'Work, lunch, school run', marks: { '2-piece-suits': 2 } },
+      { key: 'summer', label: 'Summer days', text: 'Something light and easy', marks: { '2-piece-suits': 2 } }
     ]
   },
   {
-    question: 'Which silhouette feels like you?',
+    question: 'How do you like to finish a look?',
     hint: 'There is no wrong answer, only the one you reach for.',
     options: [
-      { key: 'flowing', label: 'Flowing & layered', text: 'Ghararas, lehngas, pishwas', marks: { bridal: 2, formals: 1 } },
-      { key: 'straight', label: 'Straight & easy', text: 'Kurtas, cigarette pants', marks: { pret: 2, lawn: 1 } },
-      { key: 'structured', label: 'Structured & dramatic', text: 'Shararas, capes, organza', marks: { formals: 2, bridal: 1 } },
-      { key: 'classic', label: 'Classic three-piece', text: 'Shirt, trouser, dupatta', marks: { lawn: 2, unstitched: 1 } }
+      { key: 'dupatta', label: 'The complete three-piece', text: 'Shirt, trouser and a beautiful dupatta', marks: { '3-piece-suits': 3 } },
+      { key: 'simple', label: 'Keep it simple', text: 'A perfectly paired shirt and trouser', marks: { '2-piece-suits': 3 } },
+      { key: 'layered', label: 'A little drama', text: 'Layers and an embroidered dupatta', marks: { '3-piece-suits': 2 } },
+      { key: 'easy', label: 'Ready in five minutes', text: 'One easy set, no extra styling', marks: { '2-piece-suits': 2 } }
     ]
   },
   {
     question: 'And your palette?',
     hint: 'The colours already in your wardrobe.',
     options: [
-      { key: 'ivory', label: 'Ivory & antique gold', text: 'Soft, bridal, timeless', marks: { bridal: 2, formals: 1 } },
-      { key: 'ink', label: 'Ink, emerald & wine', text: 'Deep and a little moody', marks: { formals: 2, pret: 1 } },
-      { key: 'blush', label: 'Blush, rose & sand', text: 'Warm neutrals', marks: { lawn: 2, pret: 1 } },
-      { key: 'print', label: 'Prints & colour', text: 'Cobalt, marigold, garden florals', marks: { lawn: 2, unstitched: 1 } }
+      { key: 'ivory', label: 'Ivory & antique gold', text: 'Soft, celebratory, timeless', marks: { '3-piece-suits': 2 } },
+      { key: 'ink', label: 'Ink, emerald & wine', text: 'Deep and a little moody', marks: { '3-piece-suits': 1, '2-piece-suits': 1 } },
+      { key: 'blush', label: 'Blush, rose & sand', text: 'Warm neutrals', marks: { '2-piece-suits': 2 } },
+      { key: 'print', label: 'Prints & colour', text: 'Cobalt, marigold, garden florals', marks: { '2-piece-suits': 2 } }
     ]
   }
 ];
 
 const QUIZ_RESULTS = {
-  bridal: {
-    title: 'A bridal soul',
-    text: 'You want one piece that carries the whole evening. Start with hand-embellished pishwas and ghararas — and book a fitting; our bridal pieces are made to your measurements.',
-    cta: 'Shop bridal'
+  '3-piece-suits': {
+    title: 'The complete look',
+    text: 'You love a look that feels finished. Shirt, trouser and dupatta — explore three-piece suits with thoughtful embroidery and beautifully paired fabrics.',
+    cta: 'Shop 3 piece suits'
   },
-  formals: {
-    title: 'A formal heart',
-    text: 'You dress for the room. Chiffon, organza and a little drama — pieces that photograph as well as they move.',
-    cta: 'Shop formals'
-  },
-  pret: {
-    title: 'Quietly modern',
-    text: 'You want clothes that work as hard as you do. Textured cotton-silk, chikankari and block prints — dressed up or down.',
-    cta: 'Shop luxe pret'
-  },
-  lawn: {
-    title: 'A garden romantic',
-    text: 'Sunlight, lawn and an easy dupatta. You will live in these all summer — and they will still look considered at dinner.',
-    cta: 'Shop lawn'
-  },
-  unstitched: {
-    title: 'A fabric collector',
-    text: 'You know your tailor and you know what you like. Our fabric library is where you should start.',
-    cta: 'Shop unstitched'
+  '2-piece-suits': {
+    title: 'Quietly effortless',
+    text: 'You want a suit that works as hard as you do. A beautifully paired shirt and trouser, ready for everyday plans and last-minute invitations.',
+    cta: 'Shop 2 piece suits'
   }
 };
 
@@ -1925,14 +1970,14 @@ export function quizPage() {
           paint();
         });
       } else {
-        const scores = { bridal: 0, formals: 0, pret: 0, lawn: 0, unstitched: 0 };
+        const scores = { '2-piece-suits': 0, '3-piece-suits': 0 };
         QUIZ.forEach((q, i) => {
           const option = q.options.find((o) => o.key === answers[i]);
           if (option) Object.entries(option.marks).forEach(([k, v]) => (scores[k] = (scores[k] || 0) + v));
         });
         const winner = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
         const result = QUIZ_RESULTS[winner];
-        const picks = state.products.filter((p) => p.category === winner).slice(0, 4);
+        const picks = state.products.filter((p) => p.category === winner).sort((a, b) => Number(b.featured) - Number(a.featured) || (b.rating || 0) - (a.rating || 0)).slice(0, 4);
         app().innerHTML = `
           ${pageHead({ crumbs: [{ label: 'Style quiz' }], title: 'Your edit' })}
           <div class="quiz-page"><div class="container">

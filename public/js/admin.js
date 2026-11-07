@@ -5,14 +5,9 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-const CATEGORIES = [
-  ['lawn', 'Lawn & Summer'],
-  ['pret', 'Luxe Pret'],
-  ['formals', 'Formals'],
-  ['bridal', 'Bridal'],
-  ['unstitched', 'Unstitched'],
-  ['accessories', 'Accessories']
-];
+import { SUIT_CATEGORIES, suitCategory } from './catalog.js';
+
+const CATEGORIES = SUIT_CATEGORIES.map((category) => [category.slug, category.name]);
 
 const ORDER_STATUSES = ['pending', 'confirmed', 'packed', 'shipped', 'delivered', 'cancelled'];
 
@@ -477,6 +472,8 @@ async function renderProducts() {
     let list = [...products];
     if (filter === 'drop') list = list.filter((p) => p.isDrop);
     if (filter === 'new') list = list.filter((p) => p.isNew);
+    if (filter === 'needs-category') list = list.filter((p) => !suitCategory(p.category));
+    if (SUIT_CATEGORIES.some((c) => c.slug === filter)) list = list.filter((p) => p.category === filter);
     if (filter === 'sale') list = list.filter((p) => p.compareAt);
     if (filter === 'low') list = list.filter((p) => p.stock > 0 && p.stock <= 5);
     if (filter === 'out') list = list.filter((p) => p.stock <= 0);
@@ -494,7 +491,9 @@ async function renderProducts() {
         ${[
           ['all', 'All'],
           ['drop', 'Drop'],
-          ['new', 'New in'],
+          ['new', 'New arrivals'],
+          ...CATEGORIES,
+          ...(products.some((p) => !suitCategory(p.category)) ? [['needs-category', 'Needs category']] : []),
           ['sale', 'On sale'],
           ['low', 'Low stock'],
           ['out', 'Sold out']
@@ -504,6 +503,7 @@ async function renderProducts() {
       </div>
       <button class="abtn" type="button" data-add-product style="margin-left:auto">+ Add product</button>
     </div>
+    ${products.some((p) => !suitCategory(p.category)) ? '<p class="catalog-notice">Some pieces from the old catalogue are hidden from the shop. Open “Needs category”, then assign a suit type or delete the piece. Nothing has been deleted automatically.</p>' : ''}
     <div class="table-wrap" data-product-table></div>`;
 
   const paint = () => {
@@ -526,7 +526,7 @@ async function renderProducts() {
                   <div><strong>${esc(p.name)}</strong><span>${esc(p.collection)} · ${esc(p.pieces || '')}</span></div>
                 </div>
               </td>
-              <td><span class="tag">${esc(CATEGORIES.find(([slug]) => slug === p.category)?.[1] || p.category)}</span></td>
+              <td><span class="tag">${esc(CATEGORIES.find(([slug]) => slug === p.category)?.[1] || 'Hidden · needs category')}</span></td>
               <td>${money(p.price)}${p.compareAt ? `<br /><span style="font-size:10px;color:var(--muted);text-decoration:line-through">${money(p.compareAt)}</span>` : ''}</td>
               <td><span class="tag ${p.stock <= 0 ? 'tag--wine' : p.stock <= 5 ? 'tag--gold' : 'tag--green'}">${p.stock}</span></td>
               <td style="white-space:nowrap">
@@ -602,7 +602,7 @@ function productModal(product = null) {
   const p = product || {
     name: '',
     subtitle: '',
-    category: 'pret',
+    category: '2-piece-suits',
     collection: 'Everyday Atelier',
     price: '',
     compareAt: '',
@@ -653,8 +653,12 @@ function productModal(product = null) {
         <div class="form-grid">
           <div class="field"><label>Name *</label><input name="name" value="${esc(p.name)}" required placeholder="Noor Jahan" /></div>
           <div class="field"><label>Subtitle</label><input name="subtitle" value="${esc(p.subtitle || '')}" placeholder="Ivory hand-embellished bridal pishwas" /></div>
-          <div class="field"><label>Category</label>
-            <select name="category">${CATEGORIES.map(([slug, label]) => `<option value="${slug}" ${p.category === slug ? 'selected' : ''}>${label}</option>`).join('')}</select>
+          <div class="field"><label>Category *</label>
+            <select name="category" required>
+              ${!suitCategory(p.category) ? '<option value="" selected disabled>Choose a suit type</option>' : ''}
+              ${CATEGORIES.map(([slug, label]) => `<option value="${slug}" ${p.category === slug ? 'selected' : ''}>${label}</option>`).join('')}
+            </select>
+            <span class="field__hint">Only these two categories appear in the shop.</span>
           </div>
           <div class="field"><label>Collection</label><input name="collection" value="${esc(p.collection || '')}" placeholder="Zar Gul · Festive '26" /></div>
         </div>
@@ -672,7 +676,10 @@ function productModal(product = null) {
         <div class="subsection">
           <h3 class="subsection__title">Details</h3>
           <div class="form-grid">
-            <div class="field"><label>Pieces</label><input name="pieces" value="${esc(p.pieces || '')}" placeholder="3 Piece" /></div>
+            <div class="field"><label>Pieces</label>
+              <select name="pieces">${['2 Piece', '3 Piece', '2 Piece Unstitched', '3 Piece Unstitched'].map((value) => `<option value="${value}" ${(p.pieces || '2 Piece') === value ? 'selected' : ''}>${value}</option>`).join('')}</select>
+              <span class="field__hint">The piece count stays in sync with the category.</span>
+            </div>
             <div class="field"><label>Fabric</label><input name="fabric" value="${esc(p.fabric || '')}" placeholder="Raw silk with net dupatta" /></div>
           </div>
         </div>
@@ -722,10 +729,11 @@ function productModal(product = null) {
           <button class="abtn abtn--ghost abtn--sm" type="button" data-add-line="care" style="margin-top:8px">+ Add care note</button>
         </div>
 
-        <div class="field field--full"><label>Tags (comma separated)</label><input name="tags" value="${esc((p.tags || []).join(', '))}" placeholder="bridal, hand-embellished" /></div>
+        <div class="field field--full"><label>Tags (comma separated)</label><input name="tags" value="${esc((p.tags || []).join(', '))}" placeholder="silk, hand-embellished" /></div>
         <div class="field field--full">
           <label>Visibility</label>
-          <label class="switch"><input type="checkbox" name="isNew" ${p.isNew ? 'checked' : ''} /> Show “New in” badge</label>
+          <label class="switch"><input type="checkbox" name="isNew" ${p.isNew ? 'checked' : ''} /> Include in New Arrivals</label>
+          <p class="field__hint">New Arrivals shows flagged suits newest first and adds a “New in” badge.</p>
           <label class="switch"><input type="checkbox" name="isDrop" ${p.isDrop ? 'checked' : ''} /> Part of the current drop</label>
           <label class="switch"><input type="checkbox" name="featured" ${p.featured ? 'checked' : ''} /> Feature in homepage rails</label>
         </div>
@@ -743,6 +751,14 @@ function productModal(product = null) {
   });
 
   const form = $('#product-form', modal);
+  const categoryField = $('[name="category"]', form);
+  const piecesField = $('[name="pieces"]', form);
+  categoryField.addEventListener('change', () => {
+    piecesField.value = `${categoryField.value.charAt(0)} Piece${/Unstitched/.test(piecesField.value) ? ' Unstitched' : ''}`;
+  });
+  piecesField.addEventListener('change', () => {
+    categoryField.value = `${piecesField.value.charAt(0)}-piece-suits`;
+  });
   const imagesArea = $('[data-images]', form);
   const imageList = $('[data-image-list]', form);
   const sizeList = $('[data-size-list]', form);

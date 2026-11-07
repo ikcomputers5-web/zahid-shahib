@@ -1,10 +1,12 @@
-import { homePage, shopPage, productPage, cartPage, checkoutPage, orderPage, trackPage, wishlistPage, aboutPage, contactPage, quizPage, accountPage, notFoundPage } from './pages.js';
+import { homePage, shopPage, newArrivalsPage, productPage, cartPage, checkoutPage, orderPage, trackPage, wishlistPage, aboutPage, contactPage, quizPage, accountPage, notFoundPage } from './pages.js';
 import { closeCart, closeModal, closeSearch, closeMobileNav, hideScrim } from './ui.js';
 import { trackPageView } from './pixel.js';
+import { suitCategory } from './catalog.js';
 
 const routes = [
   { pattern: /^\/$/, view: homePage, title: 'Quiet luxury, made in Pakistan' },
-  { pattern: /^\/shop$/, view: shopPage, title: 'The Collection' },
+  { pattern: /^\/shop$/, view: shopPage, title: 'The Suit Collection' },
+  { pattern: /^\/new-arrivals$/, view: newArrivalsPage, title: 'New Arrivals' },
   { pattern: /^\/product\/([^/]+)$/, view: productPage, title: 'Piece', keys: ['slug'] },
   { pattern: /^\/cart$/, view: cartPage, title: 'Your bag' },
   { pattern: /^\/checkout$/, view: checkoutPage, title: 'Checkout' },
@@ -63,12 +65,23 @@ export async function renderRoute() {
     }
   }
 
-  // Friendly alias: /collections/bridal → /shop?category=bridal
-  if (!match && /^\/collections\/[^/]+$/.test(path)) {
-    const slug = path.split('/')[2];
-    window.location.replace(`/shop?category=${encodeURIComponent(slug)}`);
-    rendering = false;
-    return;
+  // Retired category URLs still work, but never expose an old category.
+  const collectionAlias = /^\/collections\/([^/]+)$/.exec(path);
+  const currentUrl = new URL(window.location.href);
+  if (collectionAlias || (path === '/shop' && (currentUrl.searchParams.has('category') || currentUrl.searchParams.get('new') === '1'))) {
+    const old = collectionAlias ? collectionAlias[1] : currentUrl.searchParams.get('category');
+    const canonical = suitCategory(old);
+    const newEdit = !collectionAlias && currentUrl.searchParams.get('new') === '1';
+    const target = new URL(window.location.origin + (newEdit || old === 'new-drops' ? '/new-arrivals' : '/shop'));
+    if (canonical) target.searchParams.set('category', canonical);
+    const sort = currentUrl.searchParams.get('sort');
+    if (target.pathname === '/new-arrivals' && ['price-asc', 'price-desc'].includes(sort)) target.searchParams.set('sort', sort);
+    const destination = target.pathname + target.search;
+    if (destination !== path + currentUrl.search) {
+      window.location.replace(destination);
+      rendering = false;
+      return;
+    }
   }
 
   const view = match ? match.view : notFoundPage;

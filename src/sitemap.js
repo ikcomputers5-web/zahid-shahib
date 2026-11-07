@@ -1,6 +1,7 @@
 'use strict';
 
 const { read } = require('./db');
+const { isPublishedProduct } = require('./catalog');
 
 // Public pages of the single-page storefront. Private or per-user pages
 // (/admin, /api, /order/:number, /cart, /checkout, /account, /wishlist)
@@ -8,6 +9,7 @@ const { read } = require('./db');
 const STATIC_URLS = [
   { path: '/', changefreq: 'daily', priority: '1.0' },
   { path: '/shop', changefreq: 'daily', priority: '0.9' },
+  { path: '/new-arrivals', changefreq: 'daily', priority: '0.8' },
   { path: '/about', changefreq: 'monthly', priority: '0.6' },
   { path: '/contact', changefreq: 'monthly', priority: '0.6' },
   { path: '/quiz', changefreq: 'monthly', priority: '0.5' },
@@ -61,7 +63,7 @@ function buildSitemap(baseUrl) {
     });
   }
 
-  for (const product of db.products || []) {
+  for (const product of (db.products || []).filter(isPublishedProduct)) {
     if (!product.slug) continue;
     entries.push({
       loc: `${baseUrl}/product/${encodeURIComponent(product.slug)}`,
