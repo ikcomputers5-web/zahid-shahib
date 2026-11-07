@@ -1,6 +1,7 @@
 'use strict';
 
 const { read } = require('./db');
+const { isPublishedProduct } = require('./catalog');
 
 const round = (n) => Math.round(Number(n) || 0);
 
@@ -63,7 +64,7 @@ function priceItems(items) {
   const issues = [];
   for (const raw of Array.isArray(items) ? items : []) {
     const product = db.products.find((p) => p.slug === raw.slug || p.id === raw.id);
-    if (!product) {
+    if (!product || !isPublishedProduct(product)) {
       issues.push('One of the pieces in your bag is no longer available.');
       continue;
     }

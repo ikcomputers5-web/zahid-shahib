@@ -1216,6 +1216,82 @@ ol {
   aspect-ratio: 4 / 3.4;
 }
 
+.cat-grid--suits {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cat-tile--half {
+  grid-column: span 1;
+  aspect-ratio: 4 / 4.1;
+}
+
+.cat-tile__count {
+  margin-top: 12px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.arrivals-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.arrivals-toolbar .tabs {
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.arrivals-count {
+  margin-bottom: 24px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.arrivals-notify {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 32px;
+  margin-top: 64px;
+  padding: clamp(24px, 4vw, 48px);
+  background: var(--sand);
+  border: 1px solid var(--line);
+}
+
+.arrivals-notify h2 {
+  margin-top: 10px;
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+  font-weight: 400;
+}
+
+.arrivals-notify p:not(.form-note) {
+  margin-top: 10px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.product-card__arrival,
+.product-card__type {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.product-card__arrival {
+  margin-bottom: 5px;
+  color: var(--gold);
+}
+
+.product-card__type {
+  margin-top: 5px;
+}
+
 .cat-tile img {
   position: absolute;
   inset: 0;
@@ -4707,6 +4783,13 @@ ol {
     display: none;
   }
 
+  .cat-grid--suits .cat-tile__blurb {
+    display: block;
+    text-transform: none;
+    letter-spacing: 0.03em;
+    font-size: 11px;
+  }
+
   .cat-tile__arrow {
     width: 34px;
     height: 34px;
@@ -5044,5 +5127,42 @@ table.data tr.is-clickable:hover {
 
   .section-head .section-head__actions {
     width: 100%;
+  }
+}
+
+
+@media (max-width: 640px) {
+  .cat-grid--suits {
+    grid-template-columns: 1fr;
+  }
+
+  .cat-tile--half {
+    grid-column: span 1;
+    aspect-ratio: 4 / 3.5;
+  }
+
+  .cat-grid--suits .cat-tile__name {
+    padding-right: 0;
+    font-size: 1.8rem;
+  }
+
+  .arrivals-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .arrivals-toolbar .tabs {
+    gap: 16px;
+  }
+
+  .arrivals-toolbar .select-wrap {
+    align-self: flex-start;
+  }
+
+  .arrivals-notify {
+    grid-template-columns: 1fr;
+    gap: 22px;
+    margin-top: 42px;
   }
 }

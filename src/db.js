@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { buildSeed, newAdminCredentials, applyAdminEnvCredentials, takeGeneratedPassword } = require('./seed');
 const storage = require('./storage');
+const { migrateCatalog } = require('./catalog');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
@@ -100,6 +101,7 @@ function ensureReady({ refresh = false, throwOnError = false } = {}) {
 }
 
 let credentialsChanged = false;
+let catalogChanged = false;
 
 function migrate(db) {
   // Ensure new collections exist on older databases
@@ -110,6 +112,7 @@ function migrate(db) {
   if (!Array.isArray(db.subscribers)) db.subscribers = [];
   if (!Array.isArray(db.dropAlerts)) db.dropAlerts = [];
   if (!db.settings) db.settings = buildSeed().settings;
+  if (migrateCatalog(db)) catalogChanged = true;
   // Older databases predate email+password admin login — backfill the email.
   if (!db.settings.adminEmail) db.settings.adminEmail = process.env.ADMIN_EMAIL || 'admin@ismailelegance.pk';
   // A database without a password hash would let nobody sign in. Give it
@@ -149,25 +152,27 @@ function generatedSaltHashMatch(settings, password) {
 }
 
 /**
- * Persists credential changes made by migrate() (backfill or env sync) so they
- * survive a restart. Called from server startup and on /api boot.
+ * Persists credential and one-time catalogue migrations made by migrate()
+ * so they survive a restart. Called from server startup and on /api boot.
  */
 function persistCredentialsIfChanged() {
-  if (!credentialsChanged) return Promise.resolve(false);
+  if (!credentialsChanged && !catalogChanged) return Promise.resolve(false);
   // Read-only preview: the demo credential is regenerated per boot anyway and
   // nothing can sign in, so there is nothing worth persisting (or warning about).
   if (READ_ONLY) {
     credentialsChanged = false;
+    catalogChanged = false;
     return Promise.resolve(false);
   }
   credentialsChanged = false;
+  catalogChanged = false;
   try {
     return Promise.resolve(save()).then(() => true, (err) => {
-      console.error('[db] could not persist admin credentials:', err.message);
+      console.error('[db] could not persist database migration:', err.message);
       return false;
     });
   } catch (err) {
-    console.error('[db] could not persist admin credentials:', err.message);
+    console.error('[db] could not persist database migration:', err.message);
     return Promise.resolve(false);
   }
 }
